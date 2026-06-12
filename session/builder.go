@@ -269,6 +269,13 @@ func InitializeBobSession(p BobParams) (*SessionState, error) {
 	if len(p.KyberCipher) == 0 {
 		return nil, ErrNoKyberPreKey
 	}
+	// Validate the initiator's base (ephemeral) key BEFORE any DH, mirroring
+	// pqxdh_accept's `their_ephemeral_key.is_canonical()` guard. A non-canonical
+	// point must never enter an X25519 agreement (small-subgroup / invalid-curve
+	// risk); reject it up front.
+	if !p.TheirBaseKey.IsCanonical() {
+		return nil, fmt.Errorf("%w: incoming base key is not canonical", ErrInvalidKey)
+	}
 	// Mirror of the initiator agreement (pqxdh_accept), same secret:
 	//   DH1 = our_signed_pre.priv x their_identity
 	//   DH2 = our_identity.priv   x their_base

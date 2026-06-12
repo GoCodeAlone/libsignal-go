@@ -8,6 +8,7 @@ import (
 	"context"
 	cryptorand "crypto/rand"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/GoCodeAlone/libsignal-go/address"
@@ -471,4 +472,43 @@ func FuzzProcessPreKeyBundle(f *testing.F) {
 		// Must not panic. An error is the expected outcome for garbage sigs.
 		_ = ProcessPreKeyBundle(context.Background(), &fixedReaderB{b: 224}, addr(t), b, sessStore, idStore)
 	})
+}
+
+// TestBobRejectsNonCanonicalBaseKey is the regression test for the T17 security
+// fix: InitializeBobSession must reject a non-canonical initiator base key
+// before performing any DH (mirroring pqxdh_accept's is_canonical guard). The
+// all-zero u-coordinate is a low-order, non-canonical Curve25519 point.
+func TestBobRejectsNonCanonicalBaseKey(t *testing.T) {
+	bobIdentity := genCurve(t, 60)
+	bobSignedPre := genCurve(t, 61)
+	bobKyber := genKyber(t, 62)
+	aliceIdentity := genCurve(t, 63)
+
+	nonCanonical, err := curve.DeserializePublicKey(append([]byte{0x05}, make([]byte, 32)...))
+	if err != nil {
+		t.Fatalf("deserialize non-canonical key: %v", err)
+	}
+	if nonCanonical.IsCanonical() {
+		t.Fatal("test precondition: the all-zero point must be non-canonical")
+	}
+
+	_, err = InitializeBobSession(BobParams{
+		OurIdentity:   bobIdentity,
+		OurSignedPre:  bobSignedPre,
+		OurKyber:      bobKyber,
+		TheirIdentity: aliceIdentity.PublicKey,
+		TheirBaseKey:  nonCanonical,
+		KyberCipher:   bytes.Repeat([]byte{0x01}, 1568), // non-empty so the kyber-missing guard passes first
+	})
+	if !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("err = %v, want ErrInvalidKey for non-canonical base key", err)
+	}
+	// Assert the rejection came from the up-front canonical guard, not from a
+	// downstream DH all-zero check — the security property is that the key is
+	// refused BEFORE any agreement, matching pqxdh_accept's ordering. (These
+	// particular low-order points would also fail the DH all-zero check, so the
+	// error text is what distinguishes the guard from defense-in-depth.)
+	if !strings.Contains(err.Error(), "base key is not canonical") {
+		t.Fatalf("err = %v, want the up-front canonical-guard rejection", err)
+	}
 }
