@@ -114,6 +114,23 @@ func (s *SessionState) PQRatchetState() []byte { return s.structure.GetPqRatchet
 // SetPQRatchetState stores the opaque SPQR state bytes.
 func (s *SessionState) SetPQRatchetState(b []byte) { s.structure.PqRatchetState = cloneBytes(b) }
 
+// PendingPreKey reports whether an unacknowledged pre-key message is pending
+// (either the X25519 pending pre-key or the Kyber pending pre-key is set).
+func (s *SessionState) PendingPreKey() bool {
+	return s.structure.GetPendingPreKey() != nil || s.structure.GetPendingKyberPreKey() != nil
+}
+
+// ClearUnacknowledgedPreKeyMessage clears the pending pre-key and pending Kyber
+// pre-key, mirroring SessionState::clear_unacknowledged_pre_key_message in
+// rust/protocol/src/state/session.rs. Upstream calls this when archiving a
+// session (archive_current_state_inner) so an archived state never retains an
+// unacknowledged pre-key message; it carries an IMPORTANT banner reminding that
+// any future pending field must be cleared here too.
+func (s *SessionState) ClearUnacknowledgedPreKeyMessage() {
+	s.structure.PendingPreKey = nil
+	s.structure.PendingKyberPreKey = nil
+}
+
 // SetSenderChain installs the sending chain from the local ratchet key pair and
 // its chain key (SessionState::set_sender_chain). The public + private ratchet
 // key are both stored (the local sender owns the private key).

@@ -47,11 +47,19 @@ func (r *SessionRecord) PreviousSessionCount() int { return len(r.previousSessio
 // session is already absent. The current session is encoded and prepended to
 // the archive; when the archive is already at ArchivedStatesMaxLength the
 // oldest (tail) entry is dropped first, matching upstream's pop-then-insert(0).
+//
+// Before encoding, the unacknowledged pre-key message (pending pre-key and
+// pending Kyber pre-key) is cleared, matching archive_current_state_inner ->
+// clear_unacknowledged_pre_key_message in session.rs: an archived session must
+// not retain pending pre-key state.
 func (r *SessionRecord) ArchiveCurrentState() error {
 	if r.current == nil {
 		// Nothing to archive; upstream treats this as a successful no-op.
 		return nil
 	}
+	// Clear pending pre-key state on the (about-to-be-discarded) current session
+	// before snapshotting it, exactly as upstream does on the taken session.
+	r.current.ClearUnacknowledgedPreKeyMessage()
 	encoded, err := googleproto.Marshal(r.current.structure)
 	if err != nil {
 		return fmt.Errorf("session: encoding current state for archive: %w", err)

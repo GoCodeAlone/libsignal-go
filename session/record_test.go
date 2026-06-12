@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/GoCodeAlone/libsignal-go/curve"
+	"github.com/GoCodeAlone/libsignal-go/proto"
 	"github.com/GoCodeAlone/libsignal-go/ratchet"
 )
 
@@ -259,6 +260,83 @@ func TestArchiveFreshIsNoop(t *testing.T) {
 	}
 	if rec.PreviousSessionCount() != 0 || rec.HasCurrentState() {
 		t.Fatal("archiving a fresh record changed it")
+	}
+}
+
+// TestArchiveClearsPendingPreKey is the regression test for the T15 review
+// behavioral fix: ArchiveCurrentState must clear the pending pre-key AND
+// pending Kyber pre-key before snapshotting, matching upstream
+// clear_unacknowledged_pre_key_message. A green build/test gate cannot catch
+// this divergence — only an explicit assertion on the archived bytes can.
+func TestArchiveClearsPendingPreKey(t *testing.T) {
+	st := NewEmptySessionState()
+	st.SetSessionVersion(4)
+	preKeyID := uint32(77)
+	st.Structure().PendingPreKey = &proto.SessionStructure_PendingPreKey{
+		PreKeyId:       &preKeyID,
+		SignedPreKeyId: 88,
+		BaseKey:        bytes.Repeat([]byte{0x05}, 33),
+		Timestamp:      1234,
+	}
+	st.Structure().PendingKyberPreKey = &proto.SessionStructure_PendingKyberPreKey{
+		PreKeyId:   99,
+		Ciphertext: bytes.Repeat([]byte{0x06}, 64),
+	}
+	// Sanity: both pending fields are set before archiving.
+	if !st.PendingPreKey() {
+		t.Fatal("precondition: pending pre-key should be set")
+	}
+
+	rec := NewSessionRecord(st)
+	if err := rec.ArchiveCurrentState(); err != nil {
+		t.Fatalf("ArchiveCurrentState: %v", err)
+	}
+
+	// The archived snapshot must have BOTH pending fields cleared.
+	prev, err := rec.PreviousStates()
+	if err != nil {
+		t.Fatalf("PreviousStates: %v", err)
+	}
+	if len(prev) != 1 {
+		t.Fatalf("archived count = %d, want 1", len(prev))
+	}
+	archived := prev[0]
+	if archived.Structure().GetPendingPreKey() != nil {
+		t.Fatal("archived state still has pending_pre_key set")
+	}
+	if archived.Structure().GetPendingKyberPreKey() != nil {
+		t.Fatal("archived state still has pending_kyber_pre_key set")
+	}
+	if archived.PendingPreKey() {
+		t.Fatal("archived state reports a pending pre-key after archive")
+	}
+	// The rest of the state must survive (only the pending fields are cleared).
+	if archived.SessionVersion() != 4 {
+		t.Fatalf("archived session version = %d, want 4", archived.SessionVersion())
+	}
+}
+
+// TestPromoteStateClearsPendingPreKey confirms PromoteState routes through
+// Archive, so promoting also clears the outgoing session's pending pre-key.
+func TestPromoteStateClearsPendingPreKey(t *testing.T) {
+	st := NewEmptySessionState()
+	st.SetSessionVersion(4)
+	pid := uint32(1)
+	st.Structure().PendingPreKey = &proto.SessionStructure_PendingPreKey{PreKeyId: &pid, BaseKey: []byte{0x01}}
+	st.Structure().PendingKyberPreKey = &proto.SessionStructure_PendingKyberPreKey{PreKeyId: 2, Ciphertext: []byte{0x02}}
+
+	rec := NewSessionRecord(st)
+	next := NewEmptySessionState()
+	next.SetSessionVersion(5)
+	if err := rec.PromoteState(next); err != nil {
+		t.Fatalf("PromoteState: %v", err)
+	}
+	prev, err := rec.PreviousStates()
+	if err != nil {
+		t.Fatalf("PreviousStates: %v", err)
+	}
+	if len(prev) != 1 || prev[0].Structure().GetPendingPreKey() != nil || prev[0].Structure().GetPendingKyberPreKey() != nil {
+		t.Fatal("PromoteState did not clear pending pre-key on the archived session")
 	}
 }
 
