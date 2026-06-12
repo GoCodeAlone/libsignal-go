@@ -1,0 +1,3 @@
+# Rust build artifacts. The harness is a dev/CI-only crate; only the source,
+# manifest, lockfile, and toolchain pin are committed.
+/target

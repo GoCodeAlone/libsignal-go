@@ -41,9 +41,9 @@ Wire compatibility is asserted against a **pinned upstream tag**, not a moving
 target, so that the interop gate is meaningful and reproducible.
 
 - **Stage 1 (current):** compatibility claims are bounded to the
-  **libsignal v0.91.1** protocol surface. This is the last upstream release
+  **libsignal v0.91.0** protocol surface. This is the last upstream release
   before the Sparse Post-Quantum Ratchet (SPQR) was made mandatory for new
-  sessions. The compat harness is pinned to `v0.91.1` and the committed test
+  sessions. The compat harness is pinned to `v0.91.0` and the committed test
   vectors are generated from it.
 - **Stage 2 (after P10):** once SPQR is ported, the harness is re-pinned to the
   current upstream mainline and the compatibility claim is upgraded

@@ -1,0 +1,37 @@
+#
+# Copyright 2026 libsignal-go contributors.
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Rust compatibility harness: wraps upstream libsignal-protocol pinned to a
+# fixed tag, exposing deterministic test-vector generation and a JSON-RPC
+# interop loop. This is the behavioral reference oracle for the pure-Go port.
+#
+# The git dependency + isolated-workspace pattern mirrors upstream
+# rust/protocol/cross-version-testing/Cargo.toml.
+
+[package]
+name = "rust-harness"
+version = "0.1.0"
+edition = "2021"
+
+# Prevent this crate from being pulled into any parent workspace.
+[workspace]
+members = ["."]
+
+[dependencies]
+# Pinned to a fixed upstream tag (see ADR 0001: v0.91.0, NOT v0.91.1). The
+# rand stack must match upstream's (rand 0.9 family) so a seeded ChaCha20Rng
+# satisfies the rand_core 0.9 CryptoRng/RngCore bounds the libsignal APIs take.
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.91.0", package = "libsignal-protocol" }
+rand = "0.9"
+rand_chacha = "0.9"
+# Crypto primitives for the hkdf domain: the chain/root/message-key and
+# pqxdh-secret derivations are pub(crate) upstream, so the harness reproduces
+# them against the same crate versions, matching the v0.91.0 source exactly.
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+uuid = "1"
