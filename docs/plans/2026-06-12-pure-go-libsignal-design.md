@@ -268,3 +268,18 @@ Source: `docs/design-guidance.md`
 | constant-time discipline | security review + GCM-SIV section |
 | commits codingsloth@pm.me | repo-local git config (done) |
 | PR flow, green+Copilot → admin merge | phasing PR rule |
+
+### Backport 2026-06-12: curve validity checks fold into T5
+
+Cause: upstream `rust/core/src/curve.rs` exposes `is_torsion_free()` +
+`scalar_is_in_range()` public-key validity checks (4 dedicated upstream tests);
+neither T4 nor T5 task text named them (spec-review gap finding, T4 cycle).
+Change: T5 contract clarified to include both checks + the 4 ported upstream
+tests (`honest_keys_are_torsion_free`, `tweaked_keys_are_not_torsion_free`,
+`keys_with_the_high_bit_set_are_out_of_range`,
+`keys_above_the_prime_modulus_are_out_of_range`). Natural home: same curve/
+pkg, same `filippo.io/edwards25519` dep.
+Scope: no manifest change (no task added/dropped; PR grouping unchanged —
+content clarification of existing T5 within the design's curve-domain row).
+Evidence: spec-reviewer + code-reviewer concur the checks belong to no task as
+written; security-relevant (malicious peer-key rejection).

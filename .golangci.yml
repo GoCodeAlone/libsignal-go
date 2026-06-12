@@ -14,3 +14,12 @@ linters:
     generated: strict
     paths:
       - proto/
+    rules:
+      # internal/crypto deliberately shadows the stdlib "crypto" package name
+      # (the import path is fixed by the implementation plan). The package is
+      # import-restricted to this module, so the shadowing is harmless; revive
+      # otherwise reports it once per file, which is pure noise here.
+      - path: internal/crypto/
+        text: 'var-naming: avoid package names that conflict with Go standard library'
+        linters:
+          - revive
