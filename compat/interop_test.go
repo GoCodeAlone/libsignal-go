@@ -120,13 +120,32 @@ func newHarness(t *testing.T) *harness {
 	return h
 }
 
+// closeTimeout bounds how long close() waits for the harness to exit after its
+// stdin is closed, before force-killing it. A well-behaved harness exits
+// promptly on stdin EOF; this guards against one that wedges and would
+// otherwise hang t.Cleanup (and the CI job) indefinitely.
+const closeTimeout = 10 * time.Second
+
 // close shuts the harness down: closing stdin ends its read loop, then Wait
-// reaps the process. A non-zero exit from the loop itself is not a test failure
-// (the loop exits 0 on clean EOF), but a failure to reap is logged.
+// reaps the process. If the harness does not exit within closeTimeout (e.g. it
+// ignores stdin EOF and wedges), it is force-killed and then reaped, so cleanup
+// never blocks forever. A non-zero exit from a clean shutdown is not a test
+// failure (the loop exits 0 on EOF), but unexpected outcomes are logged.
 func (h *harness) close() {
 	_ = h.stdin.Close()
-	if err := h.cmd.Wait(); err != nil {
-		h.t.Logf("harness wait: %v", err)
+	done := make(chan error, 1)
+	go func() { done <- h.cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			h.t.Logf("harness wait: %v", err)
+		}
+	case <-time.After(closeTimeout):
+		h.t.Logf("harness did not exit within %s; killing", closeTimeout)
+		_ = h.cmd.Process.Kill()
+		// Reap the killed process so no zombie or goroutine leaks; the error
+		// here is the expected "signal: killed" and is not worth surfacing.
+		<-done
 	}
 }
 
