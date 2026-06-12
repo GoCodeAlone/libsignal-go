@@ -58,3 +58,15 @@ linters:
         text: 'G115'
         linters:
           - gosec
+      # session/cipher.go converts the session version to uint8 (always 3/4) and
+      # the pending-pre-key Unix timestamp to int64 for time.Unix — both bounded,
+      # matching upstream's casts. G115 is a false positive.
+      - path: session/cipher\.go
+        text: 'G115'
+        linters:
+          - gosec
+      # session/cipher_test.go forges a message with the session version cast to
+      # uint8 (bounded) — false-positive G115 in a test, as in record_test.go.
+      - path: session/cipher_test\.go
+        linters:
+          - gosec

@@ -7,6 +7,7 @@ package session
 
 import (
 	"fmt"
+	"time"
 
 	googleproto "google.golang.org/protobuf/proto"
 
@@ -26,6 +27,11 @@ const (
 	// ArchivedStatesMaxLength bounds the archived (previous) session list.
 	ArchivedStatesMaxLength = 40
 )
+
+// MaxUnacknowledgedSessionAge is how long an initiator session may sit with an
+// unacknowledged pre-key message before encrypting to it fails as stale
+// (MAX_UNACKNOWLEDGED_SESSION_AGE in consts.rs: 30 days).
+const MaxUnacknowledgedSessionAge = 30 * 24 * time.Hour
 
 // SessionState wraps a *proto.SessionStructure. It does not re-model the
 // session; every field lives in the proto so serialization is exactly the
@@ -128,6 +134,44 @@ func (s *SessionState) PendingPreKey() bool {
 	return s.structure.GetPendingPreKey() != nil || s.structure.GetPendingKyberPreKey() != nil
 }
 
+// PendingPreKeyMessage is the unacknowledged pre-key message state an initiator
+// session carries until the recipient's first reply: the optional one-time
+// pre-key id, the signed pre-key id, the Kyber pre-key id + ciphertext, the
+// initiator's base public key, and the creation time in Unix seconds.
+type PendingPreKeyMessage struct {
+	PreKeyID        *uint32 // nil when no one-time pre-key was used
+	SignedPreKeyID  uint32
+	KyberPreKeyID   *uint32 // nil when no Kyber pre-key is pending (should not happen at v4)
+	KyberCiphertext []byte
+	BaseKey         []byte
+	UnixSeconds     uint64
+}
+
+// PendingPreKeyMessage returns the unacknowledged pre-key message state and
+// whether one is pending. Both the EC and Kyber pending records must be present
+// for a complete pre-key message (the v4 case).
+func (s *SessionState) PendingPreKeyMessage() (PendingPreKeyMessage, bool) {
+	pp := s.structure.GetPendingPreKey()
+	if pp == nil {
+		return PendingPreKeyMessage{}, false
+	}
+	out := PendingPreKeyMessage{
+		SignedPreKeyID: uint32(pp.GetSignedPreKeyId()),
+		BaseKey:        pp.GetBaseKey(),
+		UnixSeconds:    pp.GetTimestamp(),
+	}
+	if pp.PreKeyId != nil {
+		id := pp.GetPreKeyId()
+		out.PreKeyID = &id
+	}
+	if pk := s.structure.GetPendingKyberPreKey(); pk != nil {
+		id := pk.GetPreKeyId()
+		out.KyberPreKeyID = &id
+		out.KyberCiphertext = pk.GetCiphertext()
+	}
+	return out, true
+}
+
 // ClearUnacknowledgedPreKeyMessage clears the pending pre-key and pending Kyber
 // pre-key, mirroring SessionState::clear_unacknowledged_pre_key_message in
 // rust/protocol/src/state/session.rs. Upstream calls this when archiving a
@@ -228,6 +272,25 @@ func (s *SessionState) SenderRatchetKey() (curve.PublicKey, error) {
 		return curve.PublicKey{}, fmt.Errorf("session: no sender chain")
 	}
 	return curve.DeserializePublicKey(sc.GetSenderRatchetKey())
+}
+
+// SenderRatchetKeyPair returns the local sending ratchet key pair (public +
+// private), needed to compute the next DH ratchet step on the receive path. It
+// errors if no sender chain is set or its keys are malformed.
+func (s *SessionState) SenderRatchetKeyPair() (curve.KeyPair, error) {
+	sc := s.structure.GetSenderChain()
+	if sc == nil {
+		return curve.KeyPair{}, fmt.Errorf("session: no sender chain")
+	}
+	pub, err := curve.DeserializePublicKey(sc.GetSenderRatchetKey())
+	if err != nil {
+		return curve.KeyPair{}, fmt.Errorf("session: sender ratchet public key: %w", err)
+	}
+	priv, err := curve.DeserializePrivateKey(sc.GetSenderRatchetKeyPrivate())
+	if err != nil {
+		return curve.KeyPair{}, fmt.Errorf("session: sender ratchet private key: %w", err)
+	}
+	return curve.NewKeyPair(pub, priv), nil
 }
 
 // AddReceiverChain appends a receiving chain for the given remote ratchet key,
