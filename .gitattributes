@@ -1,13 +1,3 @@
-# Prevent auto-merging of generated acknowledgment files
-acknowledgments/acknowledgments.* -merge -text
-acknowledgments/acknowledgments.*.hbs merge text=auto
-
-# Treat encrypted and unencrypted message backup files as binary
-**/*.binproto binary
-**/*.binproto.encrypted binary
-
-# Avoid Windows line-endings for files compared literally.
+# Avoid Windows line-endings for files compared literally (test fixtures, compat vectors).
 **/*.expected.json text eol=lf
-
-**/*.kt.in linguist-language=Kotlin
-**/*.ts.in linguist-language=TypeScript
+**/*.json text eol=lf

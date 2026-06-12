@@ -1,8 +1,0 @@
-# IntelliJ specific files/directories
-out
-.shelf
-.idea
-*.ipr
-*.iws
-*.iml
-.kotlin

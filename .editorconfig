@@ -9,33 +9,21 @@ insert_final_newline = true
 max_line_length = 120
 trim_trailing_whitespace = true
 
-[{*.java,*.java.in}]
+[*.go]
+indent_style = tab
+indent_size = 4
 
 [*.proto]
 max_line_length = 80
 
-[*.rs]
-indent_size = 4
-
-[*.gradle]
-indent_size = 4
-
 [{*.markdown,*.md}]
 indent_size = 4
 
-[*.py]
+# rust/ retained as upstream reference until v0.1.0
+[*.rs]
 indent_size = 4
 
 [*.toml]
-indent_size = 4
-
-[{*.js,*.ts,*.ts.in}]
-max_line_length = 80
-
-[*.sh]
-indent_size = 4
-
-[*.swift]
 indent_size = 4
 
 [Makefile]
