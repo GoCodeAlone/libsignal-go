@@ -1,6 +1,6 @@
 # Design: Pure Go Signal Protocol (libsignal-go)
 
-**Date:** 2026-06-12 (rev 3 — adversarial review converged PASS at cycle 3)
+**Date:** 2026-06-12 (rev 3.1 — adversarial review converged PASS at cycle 3; Minor D13-D15 applied)
 **Status:** Approved (owner pre-authorized autonomous execution in kickoff directive)
 **Guidance:** `docs/design-guidance.md`
 **Review:** `docs/plans/2026-06-12-pure-go-libsignal-design-review.md`

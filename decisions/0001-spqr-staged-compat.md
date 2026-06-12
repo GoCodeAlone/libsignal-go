@@ -19,8 +19,8 @@ unachievable.
 ## Decision
 
 We will implement SPQR, staged as the final protocol phase (P10), and pin the
-compat harness in two stages: Stage 1 (P4-P9) pins upstream tag `T0` = last
-release interoperating without SPQR; Stage 2 (P10) ports SPQR v1.5.1 and
+compat harness in two stages: Stage 1 (P4-P9) pins upstream tag `T0 = v0.91.1` (last release before
+cf9a7445c "Force SPQR v1" flipped min_version V0→V1); Stage 2 (P10) ports SPQR v1.5.1 and
 re-pins to latest upstream tag. Mainline-compat claims are version-bounded
 until Stage 2 completes.
 
