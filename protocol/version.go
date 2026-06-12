@@ -1,13 +1,7 @@
-// Package protocol implements the Signal protocol ciphertext message types and
-// their wire encodings. It is a pure-Go port of rust/protocol/src/protocol.rs;
-// wire encodings are byte-compatible with upstream libsignal.
-//
-// Task 9 (SignalMessage, PreKeySignalMessage) and Task 10 (SenderKeyMessage,
-// SenderKeyDistributionMessage, PlaintextContent, DecryptionErrorMessage) are
-// developed on separate branches and merged before the PR. The shared version
-// constants, version-byte helpers, and ciphertext error types below live in
-// this file by agreement (Task 9 owns version.go); both task sets reference
-// them and neither redeclares them.
+// Package protocol implements the Signal wire message types: the versioned,
+// length-checked binary encodings of SignalMessage, PreKeySignalMessage, and
+// the group/plaintext message forms. It is a pure-Go port of
+// rust/protocol/src/protocol.rs and is wire-compatible with upstream libsignal.
 package protocol
 
 import (
@@ -15,70 +9,77 @@ import (
 	"fmt"
 )
 
-// Ciphertext message version constants, mirroring protocol.rs.
+// Ciphertext message version constants, from rust/protocol/src/protocol.rs.
 const (
-	// CiphertextMessageCurrentVersion is the current 1:1 ciphertext message
-	// version (post-Kyber).
-	CiphertextMessageCurrentVersion uint8 = 4
-	// CiphertextMessagePreKyberVersion is the pre-Kyber 1:1 ciphertext message
-	// version, the minimum still accepted.
-	CiphertextMessagePreKyberVersion uint8 = 3
-	// SenderKeyMessageCurrentVersion is the current sender-key message version.
-	SenderKeyMessageCurrentVersion uint8 = 3
+	// CurrentVersion is the current ciphertext message version (PQXDH / v4).
+	CurrentVersion uint8 = 4
+	// PreKyberVersion is the last version without Kyber keys (v3). Messages at
+	// this version are still accepted on deserialize for backward compatibility.
+	PreKyberVersion uint8 = 3
+	// SenderKeyCurrentVersion is the current SenderKeyMessage version
+	// (SENDERKEY_MESSAGE_CURRENT_VERSION in protocol.rs). The sender-key message
+	// family versions independently of the Double Ratchet messages.
+	SenderKeyCurrentVersion uint8 = 3
 )
 
-// versionByte encodes a message version into the leading wire byte:
-// (messageVersion & 0xF) << 4 | currentVersion, matching protocol.rs.
-func versionByte(msgVersion, currentVersion uint8) byte {
-	return byte((msgVersion&0xF)<<4 | currentVersion)
+// Ciphertext message type tags, from CiphertextMessageType in protocol.rs.
+const (
+	// MessageTypeWhisper tags a SignalMessage.
+	MessageTypeWhisper uint8 = 2
+	// MessageTypePreKey tags a PreKeySignalMessage.
+	MessageTypePreKey uint8 = 3
+	// MessageTypeSenderKey tags a SenderKeyMessage.
+	MessageTypeSenderKey uint8 = 7
+	// MessageTypePlaintext tags a PlaintextContent message.
+	MessageTypePlaintext uint8 = 8
+)
+
+// Errors returned by this package. All are %w-wrapped and errors.Is-matchable.
+var (
+	// ErrCiphertextTooShort is returned when a serialized message is shorter
+	// than its minimum framing (version byte, and for SignalMessage the MAC).
+	ErrCiphertextTooShort = errors.New("protocol: ciphertext message too short")
+	// ErrLegacyVersion is returned when a message declares a version below the
+	// minimum supported version (PreKyberVersion).
+	ErrLegacyVersion = errors.New("protocol: legacy ciphertext version")
+	// ErrUnrecognizedVersion is returned when a message declares a version
+	// above CurrentVersion.
+	ErrUnrecognizedVersion = errors.New("protocol: unrecognized ciphertext version")
+	// ErrInvalidProtobuf is returned when the protobuf body fails to decode or
+	// is missing a required field.
+	ErrInvalidProtobuf = errors.New("protocol: invalid protobuf encoding")
+	// ErrInvalidMACKeyLength is returned when a MAC key is not 32 bytes.
+	ErrInvalidMACKeyLength = errors.New("protocol: invalid MAC key length")
+	// ErrInvalidMessage is returned when a message is structurally valid but
+	// semantically rejected (e.g. a v4 PreKeySignalMessage missing its Kyber
+	// payload).
+	ErrInvalidMessage = errors.New("protocol: invalid message")
+)
+
+// encodeVersionByte builds the leading version byte of a serialized message:
+// the high nibble carries the message version, the low nibble carries the
+// message family's current version, matching protocol.rs:
+//
+//	((message_version & 0xF) << 4) | <family>_CURRENT_VERSION
+//
+// SignalMessage and PreKeySignalMessage pass CurrentVersion (4);
+// SenderKeyMessage passes SenderKeyCurrentVersion (3), since upstream keys the
+// low nibble to SENDERKEY_MESSAGE_CURRENT_VERSION for that family.
+func encodeVersionByte(messageVersion, currentVersion uint8) byte {
+	return byte(((messageVersion & 0x0F) << 4) | (currentVersion & 0x0F))
 }
 
-// messageVersion extracts the message version from a leading wire byte
-// (the high nibble).
-func messageVersion(b byte) uint8 {
-	return b >> 4
-}
-
-// ErrInvalidProtobufEncoding is returned when a message body fails protobuf
-// decoding or omits a required field.
-var ErrInvalidProtobufEncoding = errors.New("invalid protobuf encoding")
-
-// CiphertextMessageTooShortError is returned when a serialized message is too
-// short to contain its required fixed-size components.
-type CiphertextMessageTooShortError struct {
-	Length int
-}
-
-func (e CiphertextMessageTooShortError) Error() string {
-	return fmt.Sprintf("ciphertext message too short: %d bytes", e.Length)
-}
-
-// LegacyCiphertextVersionError is returned when a message carries a version
-// below the minimum still supported.
-type LegacyCiphertextVersionError struct {
-	Version uint8
-}
-
-func (e LegacyCiphertextVersionError) Error() string {
-	return fmt.Sprintf("legacy ciphertext version: %d", e.Version)
-}
-
-// UnrecognizedCiphertextVersionError is returned when a message carries a
-// version above the current supported version.
-type UnrecognizedCiphertextVersionError struct {
-	Version uint8
-}
-
-func (e UnrecognizedCiphertextVersionError) Error() string {
-	return fmt.Sprintf("unrecognized ciphertext version: %d", e.Version)
-}
-
-// UnrecognizedMessageVersionError is returned when a message's leading
-// identifier byte is not recognized.
-type UnrecognizedMessageVersionError struct {
-	Version uint32
-}
-
-func (e UnrecognizedMessageVersionError) Error() string {
-	return fmt.Sprintf("unrecognized message version: %d", e.Version)
+// decodeVersion extracts the message version from a serialized message's
+// leading byte (the high nibble) and validates it against the supported range
+// [PreKyberVersion, CurrentVersion]. Mirrors the version checks in the
+// TryFrom<&[u8]> impls in protocol.rs.
+func decodeVersion(versionByte byte) (uint8, error) {
+	v := uint8(versionByte) >> 4
+	if v < PreKyberVersion {
+		return 0, fmt.Errorf("%w: %d", ErrLegacyVersion, v)
+	}
+	if v > CurrentVersion {
+		return 0, fmt.Errorf("%w: %d", ErrUnrecognizedVersion, v)
+	}
+	return v, nil
 }
