@@ -7,8 +7,9 @@ with [`signalapp/libsignal`](https://github.com/signalapp/libsignal).
 pure-Go cryptography dependencies. **There is no cgo, C, or Rust in the
 shipped module** — it builds with `CGO_ENABLED=0` and cross-compiles like any
 ordinary Go package. The goal is byte-for-byte wire compatibility with the
-upstream Rust implementation for the client-side protocol surface, enforced by
-cross-implementation compatibility checks that run as required CI gates.
+upstream Rust implementation for the client-side protocol surface, to be
+enforced by cross-implementation compatibility checks as required CI gates
+(landing in P4).
 
 > Status: early development. The API is unstable and will change without
 > notice until the `v0.1.0` tag. Not yet suitable for production use.
@@ -95,9 +96,9 @@ go test -race ./...
 golangci-lint run              # lint (config in .golangci.yml)
 ```
 
-CI runs the same checks on Linux and macOS plus the cross-implementation
-compatibility suite. A single required status check named `go` gates merges to
-`main`.
+CI runs these checks on Linux and macOS; the cross-implementation
+compatibility suite becomes a required gate from P4 onward. A single required
+status check named `go` gates merges to `main`.
 
 ## Cryptography notice
 
