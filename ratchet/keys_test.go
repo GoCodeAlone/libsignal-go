@@ -292,10 +292,13 @@ func TestFormatRedaction(t *testing.T) {
 	ck, _ := NewChainKey(bytes.Repeat([]byte{0xAB}, chainKeyLen), 9)
 	rk, _ := NewRootKey(bytes.Repeat([]byte{0xCD}, rootKeyLen))
 	mk, _ := ck.MessageKeys() // derives distinct cipher/mac/iv from the chain key
+	// InitialKeys with a distinctive PQR seed (0xEE) so a leak is detectable;
+	// the embedded keys also carry distinctive bytes.
+	ik := InitialKeys{RootKey: rk, ChainKey: ck, PQRSeed: [32]byte(bytes.Repeat([]byte{0xEE}, 32))}
 
 	verbs := []string{"%v", "%s", "%+v", "%#v", "%x"}
 	// Hex fragments that would appear if a [N]byte field were dumped.
-	leakMarkers := []string{"abab", "cdcd"}
+	leakMarkers := []string{"abab", "cdcd", "eeee"}
 
 	check := func(name string, val any) {
 		for _, verb := range verbs {
@@ -323,6 +326,8 @@ func TestFormatRedaction(t *testing.T) {
 	check("RootKey ptr", &rk)
 	check("MessageKeys", mk)
 	check("MessageKeys ptr", &mk)
+	check("InitialKeys", ik)
+	check("InitialKeys ptr", &ik)
 
 	// Belt-and-suspenders: the MAC key bytes (derived, not 0xAB/0xCD) must also
 	// be absent from %#v of MessageKeys. Compare against the actual derived hex.

@@ -195,6 +195,18 @@ type InitialKeys struct {
 	PQRSeed [32]byte
 }
 
+// String redacts all key material (root key, chain key, and the PQR seed).
+func (k InitialKeys) String() string {
+	return "InitialKeys{rootKey/chainKey/pqrSeed: [redacted]}"
+}
+
+// Format intercepts every fmt verb (incl. %#v and %x) so neither the embedded
+// keys nor the raw PQRSeed [32]byte can leak through formatting that bypasses
+// String(). Without this, %#v on InitialKeys dumps PQRSeed as a byte array.
+func (k InitialKeys) Format(f fmt.State, _ rune) {
+	_, _ = fmt.Fprint(f, "ratchet.InitialKeys{rootKey/chainKey/pqrSeed: [REDACTED]}")
+}
+
 // DeriveInitialKeys runs the PQXDH master-secret key schedule
 // (ratchet.rs derive_keys): it assembles the master secret
 // (0xFF*32 || DH1..DH4 || kyber_shared_secret), then
