@@ -1,3 +1,2 @@
 # Avoid Windows line-endings for files compared literally (test fixtures, compat vectors).
-**/*.expected.json text eol=lf
 **/*.json text eol=lf
