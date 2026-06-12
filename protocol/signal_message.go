@@ -72,7 +72,7 @@ func NewSignalMessage(
 	}
 
 	serialized := make([]byte, 0, 1+len(bodyBytes)+macLength)
-	serialized = append(serialized, encodeVersionByte(messageVersion))
+	serialized = append(serialized, encodeVersionByte(messageVersion, CurrentVersion))
 	serialized = append(serialized, bodyBytes...)
 
 	mac, err := computeSignalMessageMAC(senderIdentityKey, receiverIdentityKey, macKey, serialized)

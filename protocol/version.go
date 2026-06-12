@@ -16,6 +16,10 @@ const (
 	// PreKyberVersion is the last version without Kyber keys (v3). Messages at
 	// this version are still accepted on deserialize for backward compatibility.
 	PreKyberVersion uint8 = 3
+	// SenderKeyCurrentVersion is the current SenderKeyMessage version
+	// (SENDERKEY_MESSAGE_CURRENT_VERSION in protocol.rs). The sender-key message
+	// family versions independently of the Double Ratchet messages.
+	SenderKeyCurrentVersion uint8 = 3
 )
 
 // Ciphertext message type tags, from CiphertextMessageType in protocol.rs.
@@ -53,12 +57,16 @@ var (
 )
 
 // encodeVersionByte builds the leading version byte of a serialized message:
-// the high nibble carries the message version, the low nibble is always
-// CurrentVersion, matching protocol.rs:
+// the high nibble carries the message version, the low nibble carries the
+// message family's current version, matching protocol.rs:
 //
-//	((message_version & 0xF) << 4) | CIPHERTEXT_MESSAGE_CURRENT_VERSION
-func encodeVersionByte(messageVersion uint8) byte {
-	return byte(((messageVersion & 0x0F) << 4) | CurrentVersion)
+//	((message_version & 0xF) << 4) | <family>_CURRENT_VERSION
+//
+// SignalMessage and PreKeySignalMessage pass CurrentVersion (4);
+// SenderKeyMessage passes SenderKeyCurrentVersion (3), since upstream keys the
+// low nibble to SENDERKEY_MESSAGE_CURRENT_VERSION for that family.
+func encodeVersionByte(messageVersion, currentVersion uint8) byte {
+	return byte(((messageVersion & 0x0F) << 4) | (currentVersion & 0x0F))
 }
 
 // decodeVersion extracts the message version from a serialized message's

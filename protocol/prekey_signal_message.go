@@ -64,7 +64,7 @@ func NewPreKeySignalMessage(
 	}
 
 	serialized := make([]byte, 0, 1+len(bodyBytes))
-	serialized = append(serialized, encodeVersionByte(messageVersion))
+	serialized = append(serialized, encodeVersionByte(messageVersion, CurrentVersion))
 	serialized = append(serialized, bodyBytes...)
 
 	return &PreKeySignalMessage{

@@ -106,13 +106,13 @@ func TestPreKeySignalMessageV4RequiresKyber(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	v4 := append([]byte{encodeVersionByte(CurrentVersion)}, bodyBytes...)
+	v4 := append([]byte{encodeVersionByte(CurrentVersion, CurrentVersion)}, bodyBytes...)
 	if _, err := DeserializePreKeySignalMessage(v4); !errors.Is(err, ErrInvalidMessage) {
 		t.Fatalf("v4-without-kyber err = %v, want ErrInvalidMessage", err)
 	}
 
 	// Same body framed as v3 must be accepted (Kyber optional pre-v4).
-	v3 := append([]byte{encodeVersionByte(PreKyberVersion)}, bodyBytes...)
+	v3 := append([]byte{encodeVersionByte(PreKyberVersion, CurrentVersion)}, bodyBytes...)
 	if _, err := DeserializePreKeySignalMessage(v3); err != nil {
 		t.Fatalf("v3-without-kyber should deserialize, got %v", err)
 	}
@@ -144,7 +144,7 @@ func TestPreKeySignalMessageKyberBothOrNeither(t *testing.T) {
 				Message:         inner.Serialize(),
 			}
 			bodyBytes, _ := proto.Marshal(body)
-			v4 := append([]byte{encodeVersionByte(CurrentVersion)}, bodyBytes...)
+			v4 := append([]byte{encodeVersionByte(CurrentVersion, CurrentVersion)}, bodyBytes...)
 			if _, err := DeserializePreKeySignalMessage(v4); !errors.Is(err, ErrInvalidMessage) {
 				t.Fatalf("err = %v, want ErrInvalidMessage", err)
 			}
@@ -169,7 +169,7 @@ func TestPreKeySignalMessageMissingRequiredFields(t *testing.T) {
 		SignedPreKeyId: proto.Uint32(2),
 	}
 	bodyBytes, _ := proto.Marshal(body)
-	v4 := append([]byte{encodeVersionByte(CurrentVersion)}, bodyBytes...)
+	v4 := append([]byte{encodeVersionByte(CurrentVersion, CurrentVersion)}, bodyBytes...)
 	if _, err := DeserializePreKeySignalMessage(v4); !errors.Is(err, ErrInvalidProtobuf) {
 		t.Fatalf("err = %v, want ErrInvalidProtobuf", err)
 	}
