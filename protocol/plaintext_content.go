@@ -36,8 +36,7 @@ func NewPlaintextContentFromDecryptionError(message *DecryptionErrorMessage) (*P
 	if err != nil {
 		return nil, err
 	}
-	serialized := make([]byte, 0, 1+len(body)+1)
-	serialized = append(serialized, plaintextContentIdentifierByte)
+	serialized := []byte{plaintextContentIdentifierByte}
 	serialized = append(serialized, body...)
 	serialized = append(serialized, paddingBoundaryByte)
 	return &PlaintextContent{serialized: serialized}, nil

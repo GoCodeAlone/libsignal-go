@@ -63,8 +63,7 @@ func NewPreKeySignalMessage(
 		return nil, fmt.Errorf("protocol: marshaling PreKeySignalMessage: %w", err)
 	}
 
-	serialized := make([]byte, 0, 1+len(bodyBytes))
-	serialized = append(serialized, encodeVersionByte(messageVersion, CurrentVersion))
+	serialized := []byte{encodeVersionByte(messageVersion, CurrentVersion)}
 	serialized = append(serialized, bodyBytes...)
 
 	return &PreKeySignalMessage{

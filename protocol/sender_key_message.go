@@ -67,8 +67,7 @@ func NewSenderKeyMessage(
 		return nil, err
 	}
 
-	serialized := make([]byte, 0, 1+len(body)+senderKeySignatureLen)
-	serialized = append(serialized, encodeVersionByte(SenderKeyCurrentVersion, SenderKeyCurrentVersion))
+	serialized := []byte{encodeVersionByte(SenderKeyCurrentVersion, SenderKeyCurrentVersion)}
 	serialized = append(serialized, body...)
 
 	signature, err := signatureKey.CalculateSignature(rng, serialized)

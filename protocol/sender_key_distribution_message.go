@@ -49,8 +49,7 @@ func NewSenderKeyDistributionMessage(
 		return nil, err
 	}
 
-	serialized := make([]byte, 0, 1+len(body))
-	serialized = append(serialized, encodeVersionByte(SenderKeyCurrentVersion, SenderKeyCurrentVersion))
+	serialized := []byte{encodeVersionByte(SenderKeyCurrentVersion, SenderKeyCurrentVersion)}
 	serialized = append(serialized, body...)
 
 	return &SenderKeyDistributionMessage{
