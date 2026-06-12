@@ -297,3 +297,18 @@ Scope: no manifest change (manifest does not name the tag; T29's Stage-2
 selection rule unaffected).
 Evidence: curl of `ratchet.rs` at both tags → V0 vs V1 (lead-verified);
 `cargo fetch` failure on v0.91.1 (implementer-2).
+
+### Backport 2026-06-12: SessionStore interface lives in session/ (import-cycle fix)
+
+Cause: design package layout put all six store interfaces in stores/ while
+SessionStore's signature references *session.SessionRecord — stores/ imports
+session/, so session/builder.go (T17) importing stores/ = import cycle
+(discovered at T17 implementation; `go build` rejects).
+Change: SessionStore interface moves into session/ (as session.Store); the
+other five interfaces stay in stores/ (none reference session types —
+SenderKeyStore uses the accepted opaque []byte record). stores/ becomes a
+leaf package; stores/inmem keeps all impls (impl package may import both).
+Scope: no manifest change (no task/PR change; package-layout clarification
+within the design's stores/session rows).
+Evidence: `go build ./session/` import-cycle error with the literal layout;
+Go idiom (consumer-side interface placement) resolves without adapters.
