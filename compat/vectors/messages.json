@@ -1,0 +1,318 @@
+{
+  "cases": [
+    {
+      "ciphertext": "000102030405060708090a0b0c0d0e0f",
+      "counter": 7,
+      "mac_key": "1111111111111111111111111111111111111111111111111111111111111111",
+      "previous_counter": 0,
+      "ratchet_key": "05afe57450c4c03a032534bab8305bfb6f6b923a5eeee420ec3ffa78efe70ec500",
+      "receiver_identity": "05fc75e1a21d66b100e0f8d1ccf0718f37285485c52f8d0df43df37303963c1a5d",
+      "sender_identity": "05df6092271524113175b7c61ead0f263e300899242d7ac9935e2a558a47fefd66",
+      "serialized": "440a2105afe57450c4c03a032534bab8305bfb6f6b923a5eeee420ec3ffa78efe70ec500100718002210000102030405060708090a0b0c0d0e0f5480fe9aa57b8e6e",
+      "type": "signal_message"
+    },
+    {
+      "base_key": "0533e4921fd9b1e6b45a4d726b30c4d8a0b3ff767990389261beca003bbcc86f0b",
+      "pre_key_id": 31,
+      "registration_id": 4660,
+      "serialized": "44081f12210533e4921fd9b1e6b45a4d726b30c4d8a0b3ff767990389261beca003bbcc86f0b1a2105df6092271524113175b7c61ead0f263e300899242d7ac9935e2a558a47fefd662242440a2105afe57450c4c03a032534bab8305bfb6f6b923a5eeee420ec3ffa78efe70ec500100718002210000102030405060708090a0b0c0d0e0f5480fe9aa57b8e6e28b4243048",
+      "signed_pre_key_id": 72,
+      "type": "prekey_signal_message"
+    },
+    {
+      "chain_id": 9,
+      "ciphertext": "a0a1a2a3a4a5a6a7a8a9aaab",
+      "distribution_id": "eb8ecdb5-0988-6190-e86a-c85d11db2265",
+      "iteration": 3,
+      "nonce": "5384a2ca7caaacdfa8d97485e914720eef2de673d6527976c2fc8885ca28f05cae116673975d4cb7f6d1211815fe74f61dc3444fc718ce1900c456116ec3aee8",
+      "serialized": "330a10eb8ecdb509886190e86ac85d11db226510091803220ca0a1a2a3a4a5a6a7a8a9aaab39dc5c97ca62846360314e53ca43a0e49a7a54109ee8f8d6665b8789478d08fe8f5567dd47775c0de488de026b6434b9b671b03d67bb3ee5f33032fc72b34882",
+      "signing_private": "f0267d125ce5611c15286c000bf3268e68056c3cd2f0ef2b460159f2e8c89b7a",
+      "signing_public": "056a209e90788b72029edb3eee576bdc69ef402321248d8455147d691ddb4c233f",
+      "type": "sender_key_message"
+    },
+    {
+      "chain_id": 9,
+      "chain_key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "distribution_id": "eb8ecdb5-0988-6190-e86a-c85d11db2265",
+      "iteration": 3,
+      "serialized": "330a10eb8ecdb509886190e86ac85d11db2265100918032220000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2a21056a209e90788b72029edb3eee576bdc69ef402321248d8455147d691ddb4c233f",
+      "signing_public": "056a209e90788b72029edb3eee576bdc69ef402321248d8455147d691ddb4c233f",
+      "type": "sender_key_distribution_message"
+    },
+    {
+      "ciphertext": "010003020504070609080b0a0d0c0f0e11",
+      "counter": 8,
+      "mac_key": "1010101010101010101010101010101010101010101010101010101010101010",
+      "previous_counter": 1,
+      "ratchet_key": "05f3d17c05eb24fd7bec49d0dabf22cd248faf8453c102d3e571eb12d713465562",
+      "receiver_identity": "05830e3a491f99c05f42d9eb118a2a2f8bf7beb73389266feb7e4609fc5e332a0d",
+      "sender_identity": "05cb2ef4db5e5f8ab4251370002ea1866688cb86fc7af1545a897772370c65ee0e",
+      "serialized": "440a2105f3d17c05eb24fd7bec49d0dabf22cd248faf8453c102d3e571eb12d713465562100818012211010003020504070609080b0a0d0c0f0e116b392389de3b219b",
+      "type": "signal_message"
+    },
+    {
+      "base_key": "0590bb9be1f4ad490ec1a1baa749c9c53f12d4a9602d0167f7c3a0fab5f3d01e68",
+      "pre_key_id": 32,
+      "registration_id": 4661,
+      "serialized": "44082012210590bb9be1f4ad490ec1a1baa749c9c53f12d4a9602d0167f7c3a0fab5f3d01e681a2105cb2ef4db5e5f8ab4251370002ea1866688cb86fc7af1545a897772370c65ee0e2243440a2105f3d17c05eb24fd7bec49d0dabf22cd248faf8453c102d3e571eb12d713465562100818012211010003020504070609080b0a0d0c0f0e116b392389de3b219b28b5243049",
+      "signed_pre_key_id": 73,
+      "type": "prekey_signal_message"
+    },
+    {
+      "chain_id": 10,
+      "ciphertext": "a1a0a3a2a5a4a7a6a9a8abaaad",
+      "distribution_id": "79a3d08c-42ec-88d2-0ae8-0bcc6dbad9b2",
+      "iteration": 4,
+      "nonce": "1d09826a2dccf6244b303620c6dfc8d7cad0ac695a2f841432b522cd7a101a109c7b20cc95653b6529c79cef0444756000f91ce91512163ebbfbcfc28bcd1d01",
+      "serialized": "330a1079a3d08c42ec88d20ae80bcc6dbad9b2100a1804220da1a0a3a2a5a4a7a6a9a8abaaadfc4aa65f11c64c5483b58762ac61ce0e7b976c707a946647b0d3d35c36a9be32cf58f60d0c828eb7dce4d6fc33b2db377a9dfe6e65c2af7c6028c79b94d6c181",
+      "signing_private": "60284659da52bd550c39b2bcf25e96c3084dd81564bd3b698cd83d4dc22aba69",
+      "signing_public": "0502da2f75beaa1d0829f37f24763f8dade70242ae963385cbe8a1fcec8076b373",
+      "type": "sender_key_message"
+    },
+    {
+      "chain_id": 10,
+      "chain_key": "010003020504070609080b0a0d0c0f0e111013121514171619181b1a1d1c1f1e",
+      "distribution_id": "79a3d08c-42ec-88d2-0ae8-0bcc6dbad9b2",
+      "iteration": 4,
+      "serialized": "330a1079a3d08c42ec88d20ae80bcc6dbad9b2100a18042220010003020504070609080b0a0d0c0f0e111013121514171619181b1a1d1c1f1e2a210502da2f75beaa1d0829f37f24763f8dade70242ae963385cbe8a1fcec8076b373",
+      "signing_public": "0502da2f75beaa1d0829f37f24763f8dade70242ae963385cbe8a1fcec8076b373",
+      "type": "sender_key_distribution_message"
+    },
+    {
+      "ciphertext": "02030001060704050a0b08090e0f0c0d1213",
+      "counter": 9,
+      "mac_key": "1313131313131313131313131313131313131313131313131313131313131313",
+      "previous_counter": 2,
+      "ratchet_key": "05f48a944f99e36217567500864b7c3ae2046712c6ff14427ca9ed4e605addcc05",
+      "receiver_identity": "056a8e7f5d7e08b36e8a4c823ebe26ff56cf8fccf05354e912b5a089fb8ae0a42e",
+      "sender_identity": "0530f40df0de5b12112689ab3a5e2b7df3693c0c3b8c962082ddb535b7acef985f",
+      "serialized": "440a2105f48a944f99e36217567500864b7c3ae2046712c6ff14427ca9ed4e605addcc0510091802221202030001060704050a0b08090e0f0c0d1213fb8a1bb7f3310c77",
+      "type": "signal_message"
+    },
+    {
+      "base_key": "051a5a48741a499ee148c8a08b0ada11bdf77982940e84db2b2beb47bb7c934f2e",
+      "pre_key_id": 33,
+      "registration_id": 4662,
+      "serialized": "4408211221051a5a48741a499ee148c8a08b0ada11bdf77982940e84db2b2beb47bb7c934f2e1a210530f40df0de5b12112689ab3a5e2b7df3693c0c3b8c962082ddb535b7acef985f2244440a2105f48a944f99e36217567500864b7c3ae2046712c6ff14427ca9ed4e605addcc0510091802221202030001060704050a0b08090e0f0c0d1213fb8a1bb7f3310c7728b624304a",
+      "signed_pre_key_id": 74,
+      "type": "prekey_signal_message"
+    },
+    {
+      "chain_id": 11,
+      "ciphertext": "a2a3a0a1a6a7a4a5aaaba8a9aeaf",
+      "distribution_id": "a8e441d1-8b6c-e20a-eab7-c53481aeac4b",
+      "iteration": 5,
+      "nonce": "48d5ad76c7c9585d3f0eb2e1ba3c86e1b9d1f6ed33fa95beee93e3a6c3440a49feada8b69c0a5052fc596b7363c06b38f15dcb411a0212cc4b8f2c31f1d87308",
+      "serialized": "330a10a8e441d18b6ce20aeab7c53481aeac4b100b1805220ea2a3a0a1a6a7a4a5aaaba8a9aeaf43a0d3419aa8c632a973e2a887673d53374efd9f5847c5d8608ff06e4919af54c4ba850c101d43c0acf7a2653ee7fdb8471d728da80676b0946f87efff40a103",
+      "signing_private": "306ed0b41c657947569afba3f4d9ebd9bb514f7f475ec8e3a0c8bc9e73c09c4a",
+      "signing_public": "053649b96f30fd2c63197a68d78a549c1496ff4b92c64798cb403595a3d2878520",
+      "type": "sender_key_message"
+    },
+    {
+      "chain_id": 11,
+      "chain_key": "02030001060704050a0b08090e0f0c0d12131011161714151a1b18191e1f1c1d",
+      "distribution_id": "a8e441d1-8b6c-e20a-eab7-c53481aeac4b",
+      "iteration": 5,
+      "serialized": "330a10a8e441d18b6ce20aeab7c53481aeac4b100b1805222002030001060704050a0b08090e0f0c0d12131011161714151a1b18191e1f1c1d2a21053649b96f30fd2c63197a68d78a549c1496ff4b92c64798cb403595a3d2878520",
+      "signing_public": "053649b96f30fd2c63197a68d78a549c1496ff4b92c64798cb403595a3d2878520",
+      "type": "sender_key_distribution_message"
+    },
+    {
+      "ciphertext": "03020100070605040b0a09080f0e0d0c131211",
+      "counter": 10,
+      "mac_key": "1212121212121212121212121212121212121212121212121212121212121212",
+      "previous_counter": 3,
+      "ratchet_key": "05e60b4014d6f1fb2fca4dce719387608176e4372ad493d8dc0356baefe0021216",
+      "receiver_identity": "051410ae30d6bc6c14f8cba31c4379d446f276f65d7bdc6ee8d3c960c095028641",
+      "sender_identity": "0513a74e1d129c5ba3b9513d22f7c3f680c5af36f1fb3ae58ac0d6d21d1e031434",
+      "serialized": "440a2105e60b4014d6f1fb2fca4dce719387608176e4372ad493d8dc0356baefe0021216100a1803221303020100070605040b0a09080f0e0d0c131211bf5ff34bc3297caf",
+      "type": "signal_message"
+    },
+    {
+      "base_key": "059493887fb178fcce137c72223f1064e9bb5c4707ea4b66ae506e5a2c4933f225",
+      "pre_key_id": 34,
+      "registration_id": 4663,
+      "serialized": "4408221221059493887fb178fcce137c72223f1064e9bb5c4707ea4b66ae506e5a2c4933f2251a210513a74e1d129c5ba3b9513d22f7c3f680c5af36f1fb3ae58ac0d6d21d1e0314342245440a2105e60b4014d6f1fb2fca4dce719387608176e4372ad493d8dc0356baefe0021216100a1803221303020100070605040b0a09080f0e0d0c131211bf5ff34bc3297caf28b724304b",
+      "signed_pre_key_id": 75,
+      "type": "prekey_signal_message"
+    },
+    {
+      "chain_id": 12,
+      "ciphertext": "a3a2a1a0a7a6a5a4abaaa9a8afaead",
+      "distribution_id": "044b9768-ec4c-1f7a-09f7-7dd9fb05f031",
+      "iteration": 6,
+      "nonce": "878fc47d1df6392d0f3ed7fad32987de7aeed2b8e8e2c2ec96bafab11bac8aac7bcb3ca5927362dd5a00776d353c6c929353872ad036f22b903b6190b899627e",
+      "serialized": "330a10044b9768ec4c1f7a09f77dd9fb05f031100c1806220fa3a2a1a0a7a6a5a4abaaa9a8afaeada5c1672d03eb194679319287ed29cf58304c9b0108af72c97291fa4c74846f98d6e880e1b1760c0d4b36ac1b786350d27aaea61665f4ec85c0072990f80ea40c",
+      "signing_private": "b86ff96bb78b819fb0225bbe467b36308dd2f4e286354988782f8ce7a195ea5c",
+      "signing_public": "054f1317f5d09547929de26438049a950f48b8b42d3d18ab476724fcf52904ec33",
+      "type": "sender_key_message"
+    },
+    {
+      "chain_id": 12,
+      "chain_key": "03020100070605040b0a09080f0e0d0c13121110171615141b1a19181f1e1d1c",
+      "distribution_id": "044b9768-ec4c-1f7a-09f7-7dd9fb05f031",
+      "iteration": 6,
+      "serialized": "330a10044b9768ec4c1f7a09f77dd9fb05f031100c1806222003020100070605040b0a09080f0e0d0c13121110171615141b1a19181f1e1d1c2a21054f1317f5d09547929de26438049a950f48b8b42d3d18ab476724fcf52904ec33",
+      "signing_public": "054f1317f5d09547929de26438049a950f48b8b42d3d18ab476724fcf52904ec33",
+      "type": "sender_key_distribution_message"
+    },
+    {
+      "ciphertext": "04050607000102030c0d0e0f08090a0b14151617",
+      "counter": 11,
+      "mac_key": "1515151515151515151515151515151515151515151515151515151515151515",
+      "previous_counter": 4,
+      "ratchet_key": "0591efc19e584d58e838f59bd079876a28888429a30ae678057997dfe9b60d3501",
+      "receiver_identity": "058112abb918e007de15c2d12d6b37701025ae6c6316e977ec5f29d6091c89d558",
+      "sender_identity": "0515ee76fbd4a27ba5c0ccbe8f5389464f97a79c5d34b6e60fc22e7d9f692d0516",
+      "serialized": "440a210591efc19e584d58e838f59bd079876a28888429a30ae678057997dfe9b60d3501100b1804221404050607000102030c0d0e0f08090a0b141516171989341a5370eb2e",
+      "type": "signal_message"
+    },
+    {
+      "base_key": "05bc4e8155a3759ddb2351c3f6d4b499f40d06a110c7ffa6c67dfec0596b595b2a",
+      "pre_key_id": 35,
+      "registration_id": 4664,
+      "serialized": "440823122105bc4e8155a3759ddb2351c3f6d4b499f40d06a110c7ffa6c67dfec0596b595b2a1a210515ee76fbd4a27ba5c0ccbe8f5389464f97a79c5d34b6e60fc22e7d9f692d05162246440a210591efc19e584d58e838f59bd079876a28888429a30ae678057997dfe9b60d3501100b1804221404050607000102030c0d0e0f08090a0b141516171989341a5370eb2e28b824304c",
+      "signed_pre_key_id": 76,
+      "type": "prekey_signal_message"
+    },
+    {
+      "chain_id": 13,
+      "ciphertext": "a4a5a6a7a0a1a2a3acadaeafa8a9aaab",
+      "distribution_id": "0b182a59-cff8-9553-3e76-0491a1f89824",
+      "iteration": 7,
+      "nonce": "990c663e727ea5a87ae296d6a0877bc83b6dba309559d620634f1a440ecfa34892940b2b8959c3524e2f834cf83260c103333682d3305e22a92bee05edb4c702",
+      "serialized": "330a100b182a59cff895533e760491a1f89824100d18072210a4a5a6a7a0a1a2a3acadaeafa8a9aaab468becb37a068fc316345c4544f8f8efa9e0a84210d069de503939114b2a4d7ae878c1aaad1db1de732bf88970a8bf230cff9c2095518657c0415603a4ae7a0e",
+      "signing_private": "c8155651a49ec1d7938b05318682ad48077a86bdb97574dadbe99c93ccc8f94b",
+      "signing_public": "052020a3d3e6370f71b0dc9003bf777be06641a5b60cdad17a5a78ed92e53bb35e",
+      "type": "sender_key_message"
+    },
+    {
+      "chain_id": 13,
+      "chain_key": "04050607000102030c0d0e0f08090a0b14151617101112131c1d1e1f18191a1b",
+      "distribution_id": "0b182a59-cff8-9553-3e76-0491a1f89824",
+      "iteration": 7,
+      "serialized": "330a100b182a59cff895533e760491a1f89824100d1807222004050607000102030c0d0e0f08090a0b14151617101112131c1d1e1f18191a1b2a21052020a3d3e6370f71b0dc9003bf777be06641a5b60cdad17a5a78ed92e53bb35e",
+      "signing_public": "052020a3d3e6370f71b0dc9003bf777be06641a5b60cdad17a5a78ed92e53bb35e",
+      "type": "sender_key_distribution_message"
+    },
+    {
+      "ciphertext": "05040706010003020d0c0f0e09080b0a1514171611",
+      "counter": 12,
+      "mac_key": "1414141414141414141414141414141414141414141414141414141414141414",
+      "previous_counter": 5,
+      "ratchet_key": "05531aaea680afffa0ae8470efddeac7c102fd99d8d8da78231fb9e3e955892a3d",
+      "receiver_identity": "05d3061236c11b612d8efa7cfe2567d68b439eefd008f3ea9e35fe1fd566089501",
+      "sender_identity": "05c72fa2595cbe25be11f0fce425b1285c7b4b17a3b776847f8a2a6d82f632e45c",
+      "serialized": "440a2105531aaea680afffa0ae8470efddeac7c102fd99d8d8da78231fb9e3e955892a3d100c1805221505040706010003020d0c0f0e09080b0a1514171611b581cd9905716a18",
+      "type": "signal_message"
+    },
+    {
+      "base_key": "05d9145cd137ee935ce2cbdefc3a5eaf48ea8babf36ad413800ff9d4d9d4d7e803",
+      "pre_key_id": 36,
+      "registration_id": 4665,
+      "serialized": "440824122105d9145cd137ee935ce2cbdefc3a5eaf48ea8babf36ad413800ff9d4d9d4d7e8031a2105c72fa2595cbe25be11f0fce425b1285c7b4b17a3b776847f8a2a6d82f632e45c2247440a2105531aaea680afffa0ae8470efddeac7c102fd99d8d8da78231fb9e3e955892a3d100c1805221505040706010003020d0c0f0e09080b0a1514171611b581cd9905716a1828b924304d",
+      "signed_pre_key_id": 77,
+      "type": "prekey_signal_message"
+    },
+    {
+      "chain_id": 14,
+      "ciphertext": "a5a4a7a6a1a0a3a2adacafaea9a8abaab5",
+      "distribution_id": "d5fb71b7-c76a-5ed9-f276-7f726dd43806",
+      "iteration": 8,
+      "nonce": "610dd187dd561a41b0137f8eaf97305db09c121f7a07f1214523d6d16ba5c317a1b5e456da158b0e02166b011b48e700dd61c07dfe87488bbcb68d4dd68e4262",
+      "serialized": "330a10d5fb71b7c76a5ed9f2767f726dd43806100e18082211a5a4a7a6a1a0a3a2adacafaea9a8abaab5ead661c019fa5c769d2a114ffb13b93291b37f7a3840c8f2324419f7a0cbb11de517d0330dc98c2e7877f607a5b03f02e903aee8ca7372ba108b2515ddf0860f",
+      "signing_private": "90eb66f7d25033d61a4021fb549fd91129cc26e47f432dabbdfe34aaf97aca6d",
+      "signing_public": "054b20f6a82eb089b573e6090104a0168df9c409f977b5e350cd2eb685ad82a050",
+      "type": "sender_key_message"
+    },
+    {
+      "chain_id": 14,
+      "chain_key": "05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a",
+      "distribution_id": "d5fb71b7-c76a-5ed9-f276-7f726dd43806",
+      "iteration": 8,
+      "serialized": "330a10d5fb71b7c76a5ed9f2767f726dd43806100e1808222005040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a2a21054b20f6a82eb089b573e6090104a0168df9c409f977b5e350cd2eb685ad82a050",
+      "signing_public": "054b20f6a82eb089b573e6090104a0168df9c409f977b5e350cd2eb685ad82a050",
+      "type": "sender_key_distribution_message"
+    },
+    {
+      "ciphertext": "06070405020300010e0f0c0d0a0b0809161714151213",
+      "counter": 13,
+      "mac_key": "1717171717171717171717171717171717171717171717171717171717171717",
+      "previous_counter": 6,
+      "ratchet_key": "0573f024a30255712de582155cc4c05fb7e687abe80543e9987cbb026191da097f",
+      "receiver_identity": "05d960422e5d40576582cbbea70c73dc51cefed19b88e48a04a7295ae62774de5f",
+      "sender_identity": "0515da58a6a667d01b915cc5bc85e9f139877bdaed2e0bd2943a31db0aa2b90c2e",
+      "serialized": "440a210573f024a30255712de582155cc4c05fb7e687abe80543e9987cbb026191da097f100d1806221606070405020300010e0f0c0d0a0b08091617141512137188cfb7c16a1ae9",
+      "type": "signal_message"
+    },
+    {
+      "base_key": "055d568427ac514933f7d21dc061a2e74b9b3614255ab0deece23ccbaeac43d33d",
+      "pre_key_id": 37,
+      "registration_id": 4666,
+      "serialized": "4408251221055d568427ac514933f7d21dc061a2e74b9b3614255ab0deece23ccbaeac43d33d1a210515da58a6a667d01b915cc5bc85e9f139877bdaed2e0bd2943a31db0aa2b90c2e2248440a210573f024a30255712de582155cc4c05fb7e687abe80543e9987cbb026191da097f100d1806221606070405020300010e0f0c0d0a0b08091617141512137188cfb7c16a1ae928ba24304e",
+      "signed_pre_key_id": 78,
+      "type": "prekey_signal_message"
+    },
+    {
+      "chain_id": 15,
+      "ciphertext": "a6a7a4a5a2a3a0a1aeafacadaaaba8a9b6b7",
+      "distribution_id": "becfebd2-9f40-10c1-eba9-6d97d986d5e7",
+      "iteration": 9,
+      "nonce": "e5595de72a67820dc5c3c6353ba08becdf3da67148f37666e075d1df8555e2f1d92765550b88bb03121315f198bd3ffa73250bb0f64e68f13fa7957986371d75",
+      "serialized": "330a10becfebd29f4010c1eba96d97d986d5e7100f18092212a6a7a4a5a2a3a0a1aeafacadaaaba8a9b6b7d0a37e0026d869ed3939804c9d501fbfb0d711715865922bb16fa928606c6a1a04bf9344ee64be6e528df97c1890725ae5d50ccc568279363fa2a6a62475bb89",
+      "signing_private": "c875d0614c85939fc7ed24730d5f48e11dafc30d8f752a3c609826590e55196f",
+      "signing_public": "0504a636cf0efa4bda026a864ab9a0124964aa5712d31832c5b2ec4690a2d5442f",
+      "type": "sender_key_message"
+    },
+    {
+      "chain_id": 15,
+      "chain_key": "06070405020300010e0f0c0d0a0b080916171415121310111e1f1c1d1a1b1819",
+      "distribution_id": "becfebd2-9f40-10c1-eba9-6d97d986d5e7",
+      "iteration": 9,
+      "serialized": "330a10becfebd29f4010c1eba96d97d986d5e7100f1809222006070405020300010e0f0c0d0a0b080916171415121310111e1f1c1d1a1b18192a210504a636cf0efa4bda026a864ab9a0124964aa5712d31832c5b2ec4690a2d5442f",
+      "signing_public": "0504a636cf0efa4bda026a864ab9a0124964aa5712d31832c5b2ec4690a2d5442f",
+      "type": "sender_key_distribution_message"
+    },
+    {
+      "ciphertext": "07060504030201000f0e0d0c0b0a090817161514131211",
+      "counter": 14,
+      "mac_key": "1616161616161616161616161616161616161616161616161616161616161616",
+      "previous_counter": 7,
+      "ratchet_key": "05c9876d475e551de5f344f20f492a6256a681cdeb3a382142f74df1254289042a",
+      "receiver_identity": "056e550029a9a4ccc560254a30f5c215dc355d1ca782561acf6609e3c2a602430b",
+      "sender_identity": "05f57259966f61e768d85ad8d03afd582b039fd8e74ebc9c4ba53dfef556c87665",
+      "serialized": "440a2105c9876d475e551de5f344f20f492a6256a681cdeb3a382142f74df1254289042a100e1807221707060504030201000f0e0d0c0b0a090817161514131211fda794b573778564",
+      "type": "signal_message"
+    },
+    {
+      "base_key": "05b87d467a0f7491452c28fe8daf88c7298b59baf03a41927915e014a718365345",
+      "pre_key_id": 38,
+      "registration_id": 4667,
+      "serialized": "440826122105b87d467a0f7491452c28fe8daf88c7298b59baf03a41927915e014a7183653451a2105f57259966f61e768d85ad8d03afd582b039fd8e74ebc9c4ba53dfef556c876652249440a2105c9876d475e551de5f344f20f492a6256a681cdeb3a382142f74df1254289042a100e1807221707060504030201000f0e0d0c0b0a090817161514131211fda794b57377856428bb24304f",
+      "signed_pre_key_id": 79,
+      "type": "prekey_signal_message"
+    },
+    {
+      "chain_id": 16,
+      "ciphertext": "a7a6a5a4a3a2a1a0afaeadacabaaa9a8b7b6b5",
+      "distribution_id": "30700430-faad-f08f-66ad-55c8eddd5b89",
+      "iteration": 10,
+      "nonce": "2583a8fbe46acde86baecac375c7baa4f94cada1f3b292f6e4702588a2619241c1caf0388f9f1f89a65ce4034af882b9a9e87e715999b4d11d06ea6b79a740fe",
+      "serialized": "330a1030700430faadf08f66ad55c8eddd5b891010180a2213a7a6a5a4a3a2a1a0afaeadacabaaa9a8b7b6b5d9dba0914324a8611f40455672936a93d5d8702d15abfc77bfda2f76663db3ac02ccb81f42cb8ee0c71db529a8f1c82eb10751360aa5ddf956e3debfd6c32881",
+      "signing_private": "c0a7d3e5520b0f900c580c415c587b2e9bf83cbb324460127941d52a1ab03c52",
+      "signing_public": "05923594a9bda08230b235e13e347d6535eda5e02140d1a5125ba734f319335747",
+      "type": "sender_key_message"
+    },
+    {
+      "chain_id": 16,
+      "chain_key": "07060504030201000f0e0d0c0b0a090817161514131211101f1e1d1c1b1a1918",
+      "distribution_id": "30700430-faad-f08f-66ad-55c8eddd5b89",
+      "iteration": 10,
+      "serialized": "330a1030700430faadf08f66ad55c8eddd5b891010180a222007060504030201000f0e0d0c0b0a090817161514131211101f1e1d1c1b1a19182a2105923594a9bda08230b235e13e347d6535eda5e02140d1a5125ba734f319335747",
+      "signing_public": "05923594a9bda08230b235e13e347d6535eda5e02140d1a5125ba734f319335747",
+      "type": "sender_key_distribution_message"
+    }
+  ],
+  "domain": "messages",
+  "seed": "0x51636e616c476f00"
+}

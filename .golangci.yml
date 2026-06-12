@@ -23,3 +23,10 @@ linters:
         text: 'var-naming: avoid package names that conflict with Go standard library'
         linters:
           - revive
+      # The compat vector consumer reads committed test-fixture JSON by a path
+      # built from a constant dir + a fixed domain name (G304), and decodes
+      # vectors whose field is literally named "private_key" — test-vector data,
+      # not a live secret (G117). Both are false positives in this test.
+      - path: compat/vectors_test\.go
+        linters:
+          - gosec
