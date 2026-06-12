@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"testing"
 
@@ -11,6 +12,28 @@ import (
 )
 
 func u32(v uint32) *uint32 { return &v }
+
+// TestPreKeySignalMessageGoldenBytes pins the PreKeySignalMessage wire layout
+// with fixed inputs (provisional anchor; replaced by upstream vectors in Task
+// 12). A small fixed Kyber ciphertext keeps the golden tractable.
+func TestPreKeySignalMessageGoldenBytes(t *testing.T) {
+	base := fixedKeyPair(t, 101).PublicKey
+	identity := fixedKeyPair(t, 102).PublicKey
+	inner := innerSignalMessage(t)
+
+	msg, err := NewPreKeySignalMessage(
+		CurrentVersion, 4242, u32(11), 22, u32(33), []byte{0xAB, 0xCD}, base, identity, inner,
+	)
+	if err != nil {
+		t.Fatalf("NewPreKeySignalMessage: %v", err)
+	}
+
+	const wantGolden = "44080b1221055714769d116bf76436ae74bc793d2c30ad1903c59ac5273805c7e2698b410c361a2105ca0ff4a4b789fc3063bb068e648933f844a9d284c6bd7f6ba2cb0d44089c100b2237440a2105c15d2265459455c9ff156e6c1da6bfb7910bb8af50f2b2f9f853ea9325259d4d100118002205696e6e6572bc3aeb6e52d9eb3c289221301638214202abcd"
+	got := hex.EncodeToString(msg.Serialize())
+	if got != wantGolden {
+		t.Fatalf("golden hex changed (wire format changed — investigate before updating):\n got  %s\n want %s", got, wantGolden)
+	}
+}
 
 // innerSignalMessage builds a valid inner SignalMessage for embedding.
 func innerSignalMessage(t *testing.T) *SignalMessage {

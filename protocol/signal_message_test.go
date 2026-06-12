@@ -58,8 +58,13 @@ func TestSignalMessageGoldenBytes(t *testing.T) {
 		t.Fatalf("NewSignalMessage: %v", err)
 	}
 
+	// Committed golden value: the exact serialized bytes for the fixed inputs
+	// above. This pins the wire layout (version byte, proto field order, MAC).
+	const wantGolden = "440a210507a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c100718032216726174636865742d656e637279707465642d626f6479ea6d64dd00ba899d"
 	got := hex.EncodeToString(msg.Serialize())
-	t.Logf("SignalMessage golden hex: %s", got)
+	if got != wantGolden {
+		t.Fatalf("golden hex changed (wire format changed — investigate before updating):\n got  %s\n want %s", got, wantGolden)
+	}
 
 	// Structural invariants that must hold regardless of proto byte ordering:
 	ser := msg.Serialize()
