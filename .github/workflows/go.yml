@@ -1,0 +1,75 @@
+name: go
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          # Honors the `toolchain go1.26.4` directive in go.mod.
+          go-version-file: go.mod
+          check-latest: true
+      - name: build
+        run: CGO_ENABLED=0 go build ./...
+      - name: vet
+        run: go vet ./...
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt found unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: test
+        run: go test -race ./...
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+
+  # Single required status check. Branch protection requires `go`; this job
+  # aggregates the matrix build/test legs and the lint job so the required
+  # check name is stable regardless of the matrix expansion.
+  go:
+    name: go
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - lint
+    if: always()
+    steps:
+      - name: verify dependencies passed
+        run: |
+          if [ "${{ needs.build.result }}" != "success" ] || [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "::error::one or more required jobs failed (build=${{ needs.build.result }}, lint=${{ needs.lint.result }})"
+            exit 1
+          fi
+          echo "all required jobs passed"

@@ -1,0 +1,16 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - gosec
+    - revive
+  exclusions:
+    # Skip protobuf-generated code: it is machine-written and re-generated
+    # from proto/*.proto, so style/lint findings there are not actionable.
+    generated: strict
+    paths:
+      - proto/
