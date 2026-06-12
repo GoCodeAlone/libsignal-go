@@ -1,0 +1,9 @@
+# Rust build artifacts.
+/target
+
+# Cargo.lock is intentionally NOT committed for this crate. Unlike the pinned
+# harness (which commits its lockfile to freeze v0.91.0's transitive graph),
+# this crate floats on upstream `main`: the compat-drift workflow resolves the
+# dependency graph fresh each run so it actually tracks `main`. A committed lock
+# would silently pin it and defeat the drift probe.
+/Cargo.lock

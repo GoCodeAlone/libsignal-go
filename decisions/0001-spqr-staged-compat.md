@@ -39,3 +39,11 @@ Alternatives rejected:
 - − README/compat claims must state the pinned stage until P10 merges (falsifiable, per-stage).
 - − P10 is a large port (ML-KEM-based sparse ratchet); risk isolated to one phase, reference source in-tree via cargo tag.
 - Undo: revert P10 PR returns to Stage 1 claim; no migration cost for earlier phases.
+
+## Erratum (2026-06-12)
+
+T0 recorded as "v0.91.1" — that tag does not exist upstream (0.91.1 was an
+untagged version bump inside `cf9a7445c`). Correct T0 = **v0.91.0** (verified:
+`min_version: spqr::Version::V0` at that tag; V1 at v0.92.0). Decision logic
+unchanged: T0 = last release tag where session establishment interops without
+SPQR. See design doc backport note 2026-06-12.

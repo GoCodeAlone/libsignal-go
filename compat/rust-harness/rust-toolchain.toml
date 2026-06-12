@@ -1,0 +1,11 @@
+#
+# Copyright 2026 libsignal-go contributors.
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Pins the toolchain used to build the compat harness against upstream
+# libsignal-protocol v0.91.0. This mirrors the channel that v0.91.0's own
+# rust-toolchain pins (the harness must compile under the same toolchain as the
+# upstream code it links). rustup fetches this toolchain on demand.
+
+[toolchain]
+channel = "nightly-2026-03-23"

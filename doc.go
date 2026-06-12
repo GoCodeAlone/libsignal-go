@@ -13,7 +13,7 @@
 //
 // Wire compatibility is asserted against a pinned upstream tag rather than a
 // moving target. Until the Sparse Post-Quantum Ratchet (SPQR) phase lands,
-// compatibility claims are bounded to the libsignal v0.91.1 protocol surface;
+// compatibility claims are bounded to the libsignal v0.91.0 protocol surface;
 // once SPQR is ported the compat harness is re-pinned to the current upstream
 // mainline. This staging and its rationale are recorded in
 // decisions/0001-spqr-staged-compat.md.
