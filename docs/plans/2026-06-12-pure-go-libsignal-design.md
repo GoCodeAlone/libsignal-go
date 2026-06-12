@@ -283,3 +283,17 @@ Scope: no manifest change (no task added/dropped; PR grouping unchanged —
 content clarification of existing T5 within the design's curve-domain row).
 Evidence: spec-reviewer + code-reviewer concur the checks belong to no task as
 written; security-relevant (malicious peer-key rejection).
+
+### Backport 2026-06-12: T0 tag erratum — v0.91.1 does not exist; T0 = v0.91.0
+
+Cause: design/ADR recorded T0 as "v0.91.1" from `cf9a7445c`'s podspec bump
+(0.91.1→0.92.0); 0.91.1 was an untagged in-dev version. Upstream tags jump
+v0.91.0 → v0.92.0 (verified `git ls-remote --tags`).
+Change: T0 = `v0.91.0`. Verified empirically: at v0.91.0,
+`ratchet.rs` sets `min_version: spqr::Version::V0` (SPQR optional, pre-SPQR
+interop works); at v0.92.0 it is V1 (required). Harness pin, doc.go, README
+references use v0.91.0.
+Scope: no manifest change (manifest does not name the tag; T29's Stage-2
+selection rule unaffected).
+Evidence: curl of `ratchet.rs` at both tags → V0 vs V1 (lead-verified);
+`cargo fetch` failure on v0.91.1 (implementer-2).
