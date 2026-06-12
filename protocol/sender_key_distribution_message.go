@@ -57,7 +57,7 @@ func NewSenderKeyDistributionMessage(
 		distributionID: distributionID,
 		chainID:        chainID,
 		iteration:      iteration,
-		chainKey:       chainKey,
+		chainKey:       append([]byte(nil), chainKey...),
 		signingKey:     signingKey,
 		serialized:     serialized,
 	}, nil
@@ -96,7 +96,7 @@ func DeserializeSenderKeyDistributionMessage(value []byte) (*SenderKeyDistributi
 	}
 	signingKey, err := curve.DeserializePublicKey(signingKeyBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: signing key: %v", ErrInvalidProtobuf, err)
 	}
 
 	var distributionID [uuidLen]byte
@@ -107,9 +107,9 @@ func DeserializeSenderKeyDistributionMessage(value []byte) (*SenderKeyDistributi
 		distributionID: distributionID,
 		chainID:        protoMessage.GetChainId(),
 		iteration:      protoMessage.GetIteration(),
-		chainKey:       chainKey,
+		chainKey:       append([]byte(nil), chainKey...),
 		signingKey:     signingKey,
-		serialized:     value,
+		serialized:     append([]byte(nil), value...),
 	}, nil
 }
 

@@ -29,6 +29,9 @@ type PlaintextContent struct {
 // PlaintextContent, matching the upstream From<DecryptionErrorMessage>
 // conversion.
 func NewPlaintextContentFromDecryptionError(message *DecryptionErrorMessage) (*PlaintextContent, error) {
+	if message == nil {
+		return nil, fmt.Errorf("%w: nil DecryptionErrorMessage", ErrInvalidMessage)
+	}
 	content := &proto.Content{
 		DecryptionErrorMessage: message.Serialized(),
 	}

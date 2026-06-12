@@ -56,6 +56,13 @@ func TestPlaintextContentRejectsBadInput(t *testing.T) {
 	} else if !errors.Is(err, ErrUnrecognizedVersion) {
 		t.Fatalf("wrong identifier error = %v, want ErrUnrecognizedVersion", err)
 	}
+
+	// A nil DecryptionErrorMessage must return a typed error, not panic.
+	if _, err := NewPlaintextContentFromDecryptionError(nil); err == nil {
+		t.Fatal("nil message accepted")
+	} else if !errors.Is(err, ErrInvalidMessage) {
+		t.Fatalf("nil message error = %v, want ErrInvalidMessage", err)
+	}
 }
 
 func TestPlaintextContentGolden(t *testing.T) {
@@ -79,8 +86,14 @@ func TestPlaintextContentGolden(t *testing.T) {
 // --- Fuzz targets: every Deserialize entry point must never panic. ---
 
 func FuzzDeserializeSenderKeyMessage(f *testing.F) {
-	signKP, _ := curve.GenerateKeyPair(&fixedReader{b: 1})
-	msg, _ := NewSenderKeyMessage(testDistributionID(), 1, 2, []byte("x"), &fixedReader{b: 2}, signKP.PrivateKey)
+	signKP, err := curve.GenerateKeyPair(&fixedReader{b: 1})
+	if err != nil {
+		f.Fatalf("seed key generation: %v", err)
+	}
+	msg, err := NewSenderKeyMessage(testDistributionID(), 1, 2, []byte("x"), &fixedReader{b: 2}, signKP.PrivateKey)
+	if err != nil {
+		f.Fatalf("seed message construction: %v", err)
+	}
 	f.Add(msg.Serialized())
 	f.Add([]byte{})
 	f.Add(make([]byte, 65))
@@ -96,8 +109,14 @@ func FuzzDeserializeSenderKeyMessage(f *testing.F) {
 }
 
 func FuzzDeserializeSenderKeyDistributionMessage(f *testing.F) {
-	signKP, _ := curve.GenerateKeyPair(&fixedReader{b: 3})
-	msg, _ := NewSenderKeyDistributionMessage(testDistributionID(), 1, 2, repeatByte(0x01, chainKeyLen), signKP.PublicKey)
+	signKP, err := curve.GenerateKeyPair(&fixedReader{b: 3})
+	if err != nil {
+		f.Fatalf("seed key generation: %v", err)
+	}
+	msg, err := NewSenderKeyDistributionMessage(testDistributionID(), 1, 2, repeatByte(0x01, chainKeyLen), signKP.PublicKey)
+	if err != nil {
+		f.Fatalf("seed message construction: %v", err)
+	}
 	f.Add(msg.Serialized())
 	f.Add([]byte{})
 	f.Add(make([]byte, 65))
@@ -107,8 +126,14 @@ func FuzzDeserializeSenderKeyDistributionMessage(f *testing.F) {
 }
 
 func FuzzDeserializeDecryptionErrorMessage(f *testing.F) {
-	rkKP, _ := curve.GenerateKeyPair(&fixedReader{b: 7})
-	msg, _ := NewDecryptionErrorMessage(&rkKP.PublicKey, 1, 2)
+	rkKP, err := curve.GenerateKeyPair(&fixedReader{b: 7})
+	if err != nil {
+		f.Fatalf("seed key generation: %v", err)
+	}
+	msg, err := NewDecryptionErrorMessage(&rkKP.PublicKey, 1, 2)
+	if err != nil {
+		f.Fatalf("seed message construction: %v", err)
+	}
 	f.Add(msg.Serialized())
 	f.Add([]byte{})
 	f.Add([]byte{0x10, 0x01})

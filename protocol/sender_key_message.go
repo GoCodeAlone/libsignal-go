@@ -81,7 +81,7 @@ func NewSenderKeyMessage(
 		distributionID: distributionID,
 		chainID:        chainID,
 		iteration:      iteration,
-		ciphertext:     ciphertext,
+		ciphertext:     append([]byte(nil), ciphertext...),
 		serialized:     serialized,
 	}, nil
 }
@@ -120,8 +120,8 @@ func DeserializeSenderKeyMessage(value []byte) (*SenderKeyMessage, error) {
 		distributionID: distributionID,
 		chainID:        protoMessage.GetChainId(),
 		iteration:      protoMessage.GetIteration(),
-		ciphertext:     protoMessage.GetCiphertext(),
-		serialized:     value,
+		ciphertext:     append([]byte(nil), protoMessage.GetCiphertext()...),
+		serialized:     append([]byte(nil), value...),
 	}, nil
 }
 

@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"fmt"
+
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/proto"
 	googleproto "google.golang.org/protobuf/proto"
@@ -57,7 +59,7 @@ func DeserializeDecryptionErrorMessage(value []byte) (*DecryptionErrorMessage, e
 	if rk := protoMessage.GetRatchetKey(); rk != nil {
 		pk, err := curve.DeserializePublicKey(rk)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: ratchet key: %v", ErrInvalidProtobuf, err)
 		}
 		ratchetKey = &pk
 	}
@@ -66,7 +68,7 @@ func DeserializeDecryptionErrorMessage(value []byte) (*DecryptionErrorMessage, e
 		ratchetKey: ratchetKey,
 		timestamp:  protoMessage.GetTimestamp(),
 		deviceID:   protoMessage.GetDeviceId(),
-		serialized: value,
+		serialized: append([]byte(nil), value...),
 	}, nil
 }
 

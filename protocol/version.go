@@ -34,7 +34,8 @@ const (
 	MessageTypePlaintext uint8 = 8
 )
 
-// Errors returned by this package. All are %w-wrapped and errors.Is-matchable.
+// Errors returned by this package. All are sentinel errors matchable with
+// errors.Is; call sites return them either directly or %w-wrapped with context.
 var (
 	// ErrCiphertextTooShort is returned when a serialized message is shorter
 	// than its minimum framing (version byte, and for SignalMessage the MAC).
