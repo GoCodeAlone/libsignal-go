@@ -209,9 +209,15 @@ func (p PrivateKey) Serialize() []byte {
 
 // PublicKey derives the public key corresponding to this private key.
 func (p PrivateKey) PublicKey() (PublicKey, error) {
+	// Use X25519 with the standard basepoint rather than ScalarBaseMult, as
+	// recommended by the curve25519 package docs; this returns an error for
+	// degenerate scalars instead of silently producing a low-order result.
+	out, err := curve25519.X25519(p.data[:], curve25519.Basepoint)
+	if err != nil {
+		return PublicKey{}, err
+	}
 	var pub [PublicKeyLength]byte
-	scalar := p.data
-	curve25519.ScalarBaseMult(&pub, &scalar)
+	copy(pub[:], out)
 	return PublicKey{keyType: KeyTypeDjb, data: pub}, nil
 }
 
