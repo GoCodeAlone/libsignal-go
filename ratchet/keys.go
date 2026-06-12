@@ -213,6 +213,14 @@ func (k InitialKeys) Format(f fmt.State, _ rune) {
 // HKDF-SHA256(ikm=secret, salt=nil, info=pqxdhInfo) -> 32B root || 32B chain ||
 // 32B pqr. The four DH agreements must already be in the upstream order.
 func DeriveInitialKeys(dh1, dh2, dh3, dh4, kyberSharedSecret []byte) (InitialKeys, error) {
+	// Each X25519 agreement must be exactly agreementLen bytes. Upstream's typed
+	// keys guarantee this; here the inputs are []byte, so validate it explicitly
+	// rather than silently producing a wrong-length master secret.
+	for i, dh := range [4][]byte{dh1, dh2, dh3, dh4} {
+		if len(dh) != agreementLen {
+			return InitialKeys{}, fmt.Errorf("ratchet: DH%d agreement must be %d bytes, got %d", i+1, agreementLen, len(dh))
+		}
+	}
 	secret := pqxdhSecret(dh1, dh2, dh3, dh4, kyberSharedSecret)
 	okm, err := hkdfSplit(secret, nil, pqxdhInfo, rootKeyLen+chainKeyLen+32)
 	if err != nil {

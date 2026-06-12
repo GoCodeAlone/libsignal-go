@@ -37,7 +37,15 @@ type SessionState struct {
 
 // NewSessionState wraps an existing SessionStructure. The structure is taken by
 // reference (not copied); callers that need isolation should Clone first.
+//
+// A nil structure is replaced with a freshly allocated zero-value one, so the
+// returned state is always backed by a non-nil structure and every method stays
+// panic-free (a setter on a nil structure would otherwise panic). Callers
+// passing a real structure are unaffected.
 func NewSessionState(s *proto.SessionStructure) *SessionState {
+	if s == nil {
+		s = &proto.SessionStructure{}
+	}
 	return &SessionState{structure: s}
 }
 

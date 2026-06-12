@@ -420,3 +420,25 @@ func FuzzDeserializeSessionRecord(f *testing.F) {
 		_, _ = rec.PreviousStates()
 	})
 }
+
+// TestNewSessionStateNilStructure confirms NewSessionState(nil) yields a usable,
+// panic-free state backed by a non-nil structure: getters return zero values and
+// setters (which would panic on a nil structure) work.
+func TestNewSessionStateNilStructure(t *testing.T) {
+	st := NewSessionState(nil)
+	if st == nil {
+		t.Fatal("NewSessionState(nil) returned nil")
+	}
+	if st.Structure() == nil {
+		t.Fatal("NewSessionState(nil) left a nil backing structure")
+	}
+	// A getter on the zero-value structure is safe and returns the zero value.
+	if v := st.SessionVersion(); v != 0 {
+		t.Fatalf("SessionVersion() = %d, want 0", v)
+	}
+	// A setter must not panic on the (formerly nil) structure.
+	st.SetRemoteRegistrationID(7)
+	if got := st.RemoteRegistrationID(); got != 7 {
+		t.Fatalf("RemoteRegistrationID() = %d, want 7", got)
+	}
+}

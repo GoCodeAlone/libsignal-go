@@ -541,6 +541,20 @@ func TestSenderKeyStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSenderKeyStoreRejectsNilRecord(t *testing.T) {
+	ctx := context.Background()
+	s := NewSenderKeyStore()
+	sender := testAddr(t, "alice", 1)
+	var dist [16]byte
+	if err := s.StoreSenderKey(ctx, sender, dist, nil); err == nil {
+		t.Fatal("StoreSenderKey(nil) accepted; want error")
+	}
+	// And the key remains absent (no nil entry was stored).
+	if got, err := s.LoadSenderKey(ctx, sender, dist); err != nil || got != nil {
+		t.Fatalf("after rejected nil store, LoadSenderKey = %q, err %v; want absent", got, err)
+	}
+}
+
 func TestSenderKeyStoreKeyingIsolation(t *testing.T) {
 	ctx := context.Background()
 	s := NewSenderKeyStore()

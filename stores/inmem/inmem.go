@@ -334,8 +334,13 @@ func (s *SenderKeyStore) LoadSenderKey(_ context.Context, sender address.Protoco
 }
 
 // StoreSenderKey stores record for (sender, distributionID), overwriting any
-// existing entry.
+// existing entry. A nil record is rejected (mirroring StoreSession): storing nil
+// would be indistinguishable from the (nil, nil) "absent" result LoadSenderKey
+// returns for an unstored key.
 func (s *SenderKeyStore) StoreSenderKey(_ context.Context, sender address.ProtocolAddress, distributionID [16]byte, record []byte) error {
+	if record == nil {
+		return fmt.Errorf("inmem: storing nil sender-key record for %s", sender)
+	}
 	s.keys[senderKeyID{sender: sender, distributionID: distributionID}] = cloneBytes(record)
 	return nil
 }

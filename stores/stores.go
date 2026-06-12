@@ -154,7 +154,9 @@ type SessionStore interface {
 	LoadSession(ctx context.Context, address address.ProtocolAddress) (*session.SessionRecord, error)
 
 	// StoreSession sets the session record for address, overwriting any existing
-	// entry.
+	// entry. record must be non-nil; implementations reject a nil record, since a
+	// nil store would be indistinguishable from the (nil, nil) "absent" result of
+	// LoadSession.
 	StoreSession(ctx context.Context, address address.ProtocolAddress, record *session.SessionRecord) error
 }
 
@@ -172,6 +174,8 @@ type SenderKeyStore interface {
 	LoadSenderKey(ctx context.Context, sender address.ProtocolAddress, distributionID [16]byte) ([]byte, error)
 
 	// StoreSenderKey sets the serialized record for (sender, distributionID),
-	// overwriting any existing entry.
+	// overwriting any existing entry. record must be non-nil; implementations
+	// reject a nil record, since a nil store would be indistinguishable from the
+	// (nil, nil) "absent" result of LoadSenderKey.
 	StoreSenderKey(ctx context.Context, sender address.ProtocolAddress, distributionID [16]byte, record []byte) error
 }

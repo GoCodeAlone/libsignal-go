@@ -225,6 +225,31 @@ func TestDeriveInitialKeys(t *testing.T) {
 	t.Logf("pqxdh-secret: %d cases == upstream (secret_input re-derived from dh1..dh4+kyber_ss)", len(v.Subdomains.PqxdhSecret))
 }
 
+// TestDeriveInitialKeysRejectsBadDHLength confirms each DH agreement input must
+// be exactly agreementLen bytes; a wrong-length DH in any of the four positions
+// is rejected rather than silently producing a wrong master secret.
+func TestDeriveInitialKeysRejectsBadDHLength(t *testing.T) {
+	good := bytes.Repeat([]byte{0x01}, agreementLen)
+	kyberSS := bytes.Repeat([]byte{0x02}, 32)
+
+	// A baseline of four good DHs derives without error.
+	if _, err := DeriveInitialKeys(good, good, good, good, kyberSS); err != nil {
+		t.Fatalf("baseline DeriveInitialKeys: %v", err)
+	}
+
+	short := bytes.Repeat([]byte{0x01}, agreementLen-1)
+	long := bytes.Repeat([]byte{0x01}, agreementLen+1)
+	for pos := 0; pos < 4; pos++ {
+		for _, bad := range [][]byte{short, long, nil} {
+			dhs := [4][]byte{good, good, good, good}
+			dhs[pos] = bad
+			if _, err := DeriveInitialKeys(dhs[0], dhs[1], dhs[2], dhs[3], kyberSS); err == nil {
+				t.Fatalf("DH%d len %d accepted; want error", pos+1, len(bad))
+			}
+		}
+	}
+}
+
 // TestChainKeyAdvances confirms Next() advances the index and changes the key,
 // and that successive message keys differ (chain ratchet sanity, beyond KATs).
 func TestChainKeyAdvances(t *testing.T) {
