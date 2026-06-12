@@ -19,6 +19,7 @@ import (
 
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
+	"github.com/GoCodeAlone/libsignal-go/session"
 	"github.com/GoCodeAlone/libsignal-go/stores"
 )
 
@@ -255,4 +256,86 @@ func (s *KyberPreKeyStore) AllKyberPreKeyIDs() []uint32 {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// SessionStore is the in-memory stores.SessionStore. Records are stored by
+// value: store and load each round-trip the record through its serialized form
+// (session.SessionRecord has no Clone method), so the store never shares a
+// *SessionRecord with a caller and a caller cannot mutate stored state.
+type SessionStore struct {
+	sessions map[address.ProtocolAddress][]byte
+}
+
+var _ stores.SessionStore = (*SessionStore)(nil)
+
+// NewSessionStore creates an empty session store.
+func NewSessionStore() *SessionStore {
+	return &SessionStore{sessions: make(map[address.ProtocolAddress][]byte)}
+}
+
+// LoadSession returns a fresh copy of the session record for addr, or
+// (nil, nil) when none is stored.
+func (s *SessionStore) LoadSession(_ context.Context, addr address.ProtocolAddress) (*session.SessionRecord, error) {
+	serialized, ok := s.sessions[addr]
+	if !ok {
+		return nil, nil
+	}
+	record, err := session.DeserializeSessionRecord(serialized)
+	if err != nil {
+		return nil, fmt.Errorf("inmem: loading session for %s: %w", addr, err)
+	}
+	return record, nil
+}
+
+// StoreSession stores a copy of record for addr, overwriting any existing entry.
+// The record is serialized on the way in, so later mutation of the caller's
+// record does not affect stored state.
+func (s *SessionStore) StoreSession(_ context.Context, addr address.ProtocolAddress, record *session.SessionRecord) error {
+	if record == nil {
+		return fmt.Errorf("inmem: storing nil session record for %s", addr)
+	}
+	serialized, err := record.Serialize()
+	if err != nil {
+		return fmt.Errorf("inmem: storing session for %s: %w", addr, err)
+	}
+	s.sessions[addr] = serialized
+	return nil
+}
+
+// SenderKeyStore is the in-memory stores.SenderKeyStore, keyed by the
+// (sender, distributionID) pair. Records are opaque serialized bytes, defensively
+// copied on store and load.
+type SenderKeyStore struct {
+	keys map[senderKeyID][]byte
+}
+
+// senderKeyID keys the sender-key map by the (sender, distributionID) pair. Both
+// components are comparable, so the struct is usable as a Go map key directly.
+type senderKeyID struct {
+	sender         address.ProtocolAddress
+	distributionID [16]byte
+}
+
+var _ stores.SenderKeyStore = (*SenderKeyStore)(nil)
+
+// NewSenderKeyStore creates an empty sender-key store.
+func NewSenderKeyStore() *SenderKeyStore {
+	return &SenderKeyStore{keys: make(map[senderKeyID][]byte)}
+}
+
+// LoadSenderKey returns the serialized record for (sender, distributionID), or
+// (nil, nil) when none is stored.
+func (s *SenderKeyStore) LoadSenderKey(_ context.Context, sender address.ProtocolAddress, distributionID [16]byte) ([]byte, error) {
+	record, ok := s.keys[senderKeyID{sender: sender, distributionID: distributionID}]
+	if !ok {
+		return nil, nil
+	}
+	return cloneBytes(record), nil
+}
+
+// StoreSenderKey stores record for (sender, distributionID), overwriting any
+// existing entry.
+func (s *SenderKeyStore) StoreSenderKey(_ context.Context, sender address.ProtocolAddress, distributionID [16]byte, record []byte) error {
+	s.keys[senderKeyID{sender: sender, distributionID: distributionID}] = cloneBytes(record)
+	return nil
 }

@@ -2,27 +2,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Package stores defines the storage interfaces the Signal protocol drives
-// against — the identity, pre-key, signed-pre-key, and Kyber-pre-key stores —
-// and is a pure-Go port of rust/protocol/src/storage/traits.rs. Implementations
-// may be in-memory (see the inmem subpackage), on-disk, or remote.
+// against — the identity, pre-key, signed-pre-key, Kyber-pre-key, session, and
+// sender-key stores — and is a pure-Go port of
+// rust/protocol/src/storage/traits.rs. Implementations may be in-memory (see the
+// inmem subpackage), on-disk, or remote.
 //
 // All methods take a context.Context as their first parameter and return an
-// error; none panic. Records are exchanged as opaque serialized bytes keyed by
-// typed ids: the store neither parses nor validates a record, it only persists
-// and returns it. Callers serialize a record before saving and deserialize the
-// bytes they read back, so the store contract is stable across the record
-// types' own evolution.
+// error; none panic.
 //
-// # Not yet defined here: SessionStore and SenderKeyStore
-//
-// Upstream's traits.rs also defines SessionStore (keyed by ProtocolAddress) and
-// SenderKeyStore (keyed by (sender, distribution_id)). Both traffic in the rich
-// session/sender-key record types from T15, which land on a sibling PR-5 branch
-// and are not present here. To keep this branch independently buildable without
-// inventing throwaway record types, those two interfaces are deferred: they are
-// added in a small follow-up commit once the team-lead merges the PR-5 branches
-// and the session types are available. Their upstream shape is preserved then,
-// not approximated now.
+// Pre-key, signed-pre-key, Kyber-pre-key, and sender-key records are exchanged
+// as opaque serialized bytes keyed by typed ids: the store neither parses nor
+// validates a record, it only persists and returns it. Callers serialize a
+// record before saving and deserialize the bytes they read back, so the store
+// contract is stable across those record types' own evolution. Session records,
+// whose Go type (session.SessionRecord) is available, are exchanged as that
+// typed value instead.
 package stores
 
 import (
@@ -30,6 +24,7 @@ import (
 
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
+	"github.com/GoCodeAlone/libsignal-go/session"
 )
 
 // Direction is the role an identity is being checked for when deciding trust.
@@ -148,4 +143,35 @@ type KyberPreKeyStore interface {
 	// deleted by a real client after this; a last-resort key is retained, which
 	// is why the reuse check exists.
 	MarkKyberPreKeyUsed(ctx context.Context, kyberPreKeyID uint32, ecPreKeyID uint32, baseKey curve.PublicKey) error
+}
+
+// SessionStore stores the Double Ratchet session record for each remote
+// address. It mirrors upstream's SessionStore trait.
+type SessionStore interface {
+	// LoadSession returns the session record for address, or (nil, nil) when no
+	// session is stored — mirroring upstream's Option<SessionRecord> return,
+	// where a nil record means "absent" rather than an error.
+	LoadSession(ctx context.Context, address address.ProtocolAddress) (*session.SessionRecord, error)
+
+	// StoreSession sets the session record for address, overwriting any existing
+	// entry.
+	StoreSession(ctx context.Context, address address.ProtocolAddress, record *session.SessionRecord) error
+}
+
+// SenderKeyStore stores sender-key records for group messaging, keyed by the
+// (sender, distributionID) pair so a single sender may hold multiple keys. It
+// mirrors upstream's SenderKeyStore trait.
+//
+// The sender-key record is exchanged as opaque serialized bytes: its Go type
+// lands with the group messaging work (T20). Until then this matches the
+// pre-key stores' convention; the typed record can replace []byte later without
+// changing the keying or semantics.
+type SenderKeyStore interface {
+	// LoadSenderKey returns the serialized record for (sender, distributionID),
+	// or (nil, nil) when none is stored.
+	LoadSenderKey(ctx context.Context, sender address.ProtocolAddress, distributionID [16]byte) ([]byte, error)
+
+	// StoreSenderKey sets the serialized record for (sender, distributionID),
+	// overwriting any existing entry.
+	StoreSenderKey(ctx context.Context, sender address.ProtocolAddress, distributionID [16]byte, record []byte) error
 }

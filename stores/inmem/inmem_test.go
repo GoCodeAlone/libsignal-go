@@ -12,6 +12,7 @@ import (
 
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
+	"github.com/GoCodeAlone/libsignal-go/session"
 	"github.com/GoCodeAlone/libsignal-go/stores"
 )
 
@@ -360,5 +361,225 @@ func TestKyberMarkUsedRejectsReuse(t *testing.T) {
 	}
 	if err := s.MarkKyberPreKeyUsed(ctx, kyberID+1, ecID, baseA); err != nil {
 		t.Fatalf("MarkKyberPreKeyUsed(different kyber): %v", err)
+	}
+}
+
+// --- SessionStore: round-trip, absent->nil, overwrite, by-value storage ---
+
+// sessionWithRegID builds a session record whose remote registration id is regID,
+// giving each record observably distinct serialized content.
+func sessionWithRegID(regID uint32) *session.SessionRecord {
+	state := session.NewEmptySessionState()
+	state.SetRemoteRegistrationID(regID)
+	return session.NewSessionRecord(state)
+}
+
+func TestSessionStoreRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := NewSessionStore()
+	addr := testAddr(t, "alice", 1)
+
+	// Absent -> (nil, nil), not an error.
+	got, err := s.LoadSession(ctx, addr)
+	if err != nil {
+		t.Fatalf("LoadSession(absent): %v", err)
+	}
+	if got != nil {
+		t.Fatal("LoadSession(absent) returned non-nil record")
+	}
+
+	rec := sessionWithRegID(42)
+	if err := s.StoreSession(ctx, addr, rec); err != nil {
+		t.Fatalf("StoreSession: %v", err)
+	}
+	got, err = s.LoadSession(ctx, addr)
+	if err != nil {
+		t.Fatalf("LoadSession: %v", err)
+	}
+	if got == nil {
+		t.Fatal("LoadSession returned nil after store")
+	}
+	if got.CurrentState().RemoteRegistrationID() != 42 {
+		t.Fatalf("loaded remote reg id = %d, want 42", got.CurrentState().RemoteRegistrationID())
+	}
+
+	// Stored by value: mutating the caller's record after store does not change
+	// stored state, and the loaded record is an independent copy.
+	rec.CurrentState().SetRemoteRegistrationID(99)
+	got2, err := s.LoadSession(ctx, addr)
+	if err != nil {
+		t.Fatalf("LoadSession(after caller mutation): %v", err)
+	}
+	if got2.CurrentState().RemoteRegistrationID() != 42 {
+		t.Fatalf("stored session mutated via caller aliasing: reg id = %d, want 42", got2.CurrentState().RemoteRegistrationID())
+	}
+	// Mutating one loaded copy does not affect another load.
+	got.CurrentState().SetRemoteRegistrationID(7)
+	got3, err := s.LoadSession(ctx, addr)
+	if err != nil {
+		t.Fatalf("LoadSession(after loaded mutation): %v", err)
+	}
+	if got3.CurrentState().RemoteRegistrationID() != 42 {
+		t.Fatalf("stored session mutated via returned record aliasing: reg id = %d, want 42", got3.CurrentState().RemoteRegistrationID())
+	}
+
+	// Overwrite.
+	if err := s.StoreSession(ctx, addr, sessionWithRegID(100)); err != nil {
+		t.Fatalf("StoreSession(overwrite): %v", err)
+	}
+	got, err = s.LoadSession(ctx, addr)
+	if err != nil {
+		t.Fatalf("LoadSession(after overwrite): %v", err)
+	}
+	if got.CurrentState().RemoteRegistrationID() != 100 {
+		t.Fatalf("overwrite failed: reg id = %d, want 100", got.CurrentState().RemoteRegistrationID())
+	}
+}
+
+func TestSessionStoreNilRecordRejected(t *testing.T) {
+	ctx := context.Background()
+	s := NewSessionStore()
+	if err := s.StoreSession(ctx, testAddr(t, "bob", 2), nil); err == nil {
+		t.Fatal("StoreSession(nil) accepted; want error")
+	}
+}
+
+func TestSessionStoreKeyedByAddress(t *testing.T) {
+	ctx := context.Background()
+	s := NewSessionStore()
+	addr1 := testAddr(t, "alice", 1)
+	addr2 := testAddr(t, "alice", 2) // same name, different device
+	addr3 := testAddr(t, "carol", 1) // different name, same device
+
+	if err := s.StoreSession(ctx, addr1, sessionWithRegID(1)); err != nil {
+		t.Fatalf("StoreSession(addr1): %v", err)
+	}
+	if err := s.StoreSession(ctx, addr2, sessionWithRegID(2)); err != nil {
+		t.Fatalf("StoreSession(addr2): %v", err)
+	}
+
+	for _, tc := range []struct {
+		addr  address.ProtocolAddress
+		want  uint32
+		found bool
+	}{
+		{addr1, 1, true},
+		{addr2, 2, true},
+		{addr3, 0, false},
+	} {
+		got, err := s.LoadSession(ctx, tc.addr)
+		if err != nil {
+			t.Fatalf("LoadSession(%s): %v", tc.addr, err)
+		}
+		if !tc.found {
+			if got != nil {
+				t.Fatalf("LoadSession(%s) = non-nil, want absent", tc.addr)
+			}
+			continue
+		}
+		if got.CurrentState().RemoteRegistrationID() != tc.want {
+			t.Fatalf("LoadSession(%s) reg id = %d, want %d", tc.addr, got.CurrentState().RemoteRegistrationID(), tc.want)
+		}
+	}
+}
+
+// --- SenderKeyStore: round-trip, absent->nil, overwrite, (sender,dist) keying ---
+
+func TestSenderKeyStoreRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := NewSenderKeyStore()
+	sender := testAddr(t, "alice", 1)
+	var dist [16]byte
+	if _, err := rand.Read(dist[:]); err != nil {
+		t.Fatalf("rand dist: %v", err)
+	}
+
+	// Absent -> (nil, nil).
+	got, err := s.LoadSenderKey(ctx, sender, dist)
+	if err != nil {
+		t.Fatalf("LoadSenderKey(absent): %v", err)
+	}
+	if got != nil {
+		t.Fatal("LoadSenderKey(absent) returned non-nil")
+	}
+
+	rec := []byte("sender-key-record")
+	if err := s.StoreSenderKey(ctx, sender, dist, rec); err != nil {
+		t.Fatalf("StoreSenderKey: %v", err)
+	}
+	got, err = s.LoadSenderKey(ctx, sender, dist)
+	if err != nil {
+		t.Fatalf("LoadSenderKey: %v", err)
+	}
+	if !bytes.Equal(got, rec) {
+		t.Fatalf("LoadSenderKey = %q, want %q", got, rec)
+	}
+
+	// Defensive copy on input and output.
+	rec[0] = 'X'
+	got[1] = 'Y'
+	again, err := s.LoadSenderKey(ctx, sender, dist)
+	if err != nil {
+		t.Fatalf("LoadSenderKey(again): %v", err)
+	}
+	if !bytes.Equal(again, []byte("sender-key-record")) {
+		t.Fatalf("stored sender key mutated via aliasing: %q", again)
+	}
+
+	// Overwrite.
+	if err := s.StoreSenderKey(ctx, sender, dist, []byte("rotated")); err != nil {
+		t.Fatalf("StoreSenderKey(overwrite): %v", err)
+	}
+	got, err = s.LoadSenderKey(ctx, sender, dist)
+	if err != nil {
+		t.Fatalf("LoadSenderKey(after overwrite): %v", err)
+	}
+	if !bytes.Equal(got, []byte("rotated")) {
+		t.Fatalf("overwrite failed: %q", got)
+	}
+}
+
+func TestSenderKeyStoreKeyingIsolation(t *testing.T) {
+	ctx := context.Background()
+	s := NewSenderKeyStore()
+
+	addr1 := testAddr(t, "alice", 1)
+	addr2 := testAddr(t, "bob", 1)
+	distA := [16]byte{0xA0}
+	distB := [16]byte{0xB0}
+
+	// (addr1, distA), (addr1, distB), (addr2, distA) are three distinct keys.
+	if err := s.StoreSenderKey(ctx, addr1, distA, []byte("a1-A")); err != nil {
+		t.Fatalf("store (addr1,distA): %v", err)
+	}
+	if err := s.StoreSenderKey(ctx, addr1, distB, []byte("a1-B")); err != nil {
+		t.Fatalf("store (addr1,distB): %v", err)
+	}
+	if err := s.StoreSenderKey(ctx, addr2, distA, []byte("a2-A")); err != nil {
+		t.Fatalf("store (addr2,distA): %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		addr address.ProtocolAddress
+		dist [16]byte
+		want string
+	}{
+		{"addr1/distA", addr1, distA, "a1-A"},
+		{"addr1/distB", addr1, distB, "a1-B"},
+		{"addr2/distA", addr2, distA, "a2-A"},
+	} {
+		got, err := s.LoadSenderKey(ctx, tc.addr, tc.dist)
+		if err != nil {
+			t.Fatalf("LoadSenderKey(%s): %v", tc.name, err)
+		}
+		if !bytes.Equal(got, []byte(tc.want)) {
+			t.Fatalf("LoadSenderKey(%s) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	// A pair never stored is absent.
+	if got, err := s.LoadSenderKey(ctx, addr2, distB); err != nil || got != nil {
+		t.Fatalf("LoadSenderKey(addr2,distB) = %q, err %v; want absent", got, err)
 	}
 }
