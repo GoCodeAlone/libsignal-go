@@ -59,8 +59,14 @@ func TestSenderKeyDistributionMessageRejectsBadInput(t *testing.T) {
 		t.Fatalf("short error = %v, want ErrCiphertextTooShort", err)
 	}
 
-	signKP, _ := curve.GenerateKeyPair(&fixedReader{b: 3})
-	msg, _ := NewSenderKeyDistributionMessage(testDistributionID(), 1, 1, repeatByte(0x01, chainKeyLen), signKP.PublicKey)
+	signKP, err := curve.GenerateKeyPair(&fixedReader{b: 3})
+	if err != nil {
+		t.Fatalf("key generation: %v", err)
+	}
+	msg, err := NewSenderKeyDistributionMessage(testDistributionID(), 1, 1, repeatByte(0x01, chainKeyLen), signKP.PublicKey)
+	if err != nil {
+		t.Fatalf("message construction: %v", err)
+	}
 
 	legacy := append([]byte(nil), msg.Serialized()...)
 	legacy[0] = (2 << 4) | SenderKeyCurrentVersion

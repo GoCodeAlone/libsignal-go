@@ -101,8 +101,14 @@ func TestSenderKeyMessageRejectsBadInput(t *testing.T) {
 		t.Fatalf("short message error = %v, want ErrCiphertextTooShort", err)
 	}
 
-	signKP, _ := curve.GenerateKeyPair(&fixedReader{b: 1})
-	msg, _ := NewSenderKeyMessage(testDistributionID(), 1, 1, []byte("x"), &fixedReader{b: 2}, signKP.PrivateKey)
+	signKP, err := curve.GenerateKeyPair(&fixedReader{b: 1})
+	if err != nil {
+		t.Fatalf("key generation: %v", err)
+	}
+	msg, err := NewSenderKeyMessage(testDistributionID(), 1, 1, []byte("x"), &fixedReader{b: 2}, signKP.PrivateKey)
+	if err != nil {
+		t.Fatalf("message construction: %v", err)
+	}
 
 	// Legacy version (< current): set high nibble to 2.
 	legacy := append([]byte(nil), msg.Serialized()...)

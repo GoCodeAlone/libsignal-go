@@ -166,7 +166,10 @@ func TestPreKeySignalMessageKyberBothOrNeither(t *testing.T) {
 				IdentityKey:     identity.Serialize(),
 				Message:         inner.Serialize(),
 			}
-			bodyBytes, _ := proto.Marshal(body)
+			bodyBytes, err := proto.Marshal(body)
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
 			v4 := append([]byte{encodeVersionByte(CurrentVersion, CurrentVersion)}, bodyBytes...)
 			if _, err := DeserializePreKeySignalMessage(v4); !errors.Is(err, ErrInvalidMessage) {
 				t.Fatalf("err = %v, want ErrInvalidMessage", err)
@@ -191,7 +194,10 @@ func TestPreKeySignalMessageMissingRequiredFields(t *testing.T) {
 		RegistrationId: proto.Uint32(1),
 		SignedPreKeyId: proto.Uint32(2),
 	}
-	bodyBytes, _ := proto.Marshal(body)
+	bodyBytes, err := proto.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
 	v4 := append([]byte{encodeVersionByte(CurrentVersion, CurrentVersion)}, bodyBytes...)
 	if _, err := DeserializePreKeySignalMessage(v4); !errors.Is(err, ErrInvalidProtobuf) {
 		t.Fatalf("err = %v, want ErrInvalidProtobuf", err)
