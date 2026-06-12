@@ -28,9 +28,8 @@ use std::io::{self, BufRead, Write};
 
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::Sha256;
 
@@ -50,6 +49,54 @@ const VECTOR_SEED: u64 = 0x5163_6e61_6c47_6f00; // "SignalGo\0"-ish, stable.
 fn seeded_rng() -> ChaCha20Rng {
     ChaCha20Rng::seed_from_u64(VECTOR_SEED)
 }
+
+/// An RNG that replays a fixed byte buffer, then errors if drained.
+///
+/// XEdDSA signing draws a 64-byte nonce from its `csprng` (see
+/// curve25519::PrivateKey::calculate_signature). To let the Go consumer
+/// reproduce a signature byte-for-byte, the curve vectors record that exact
+/// nonce: we draw 64 bytes from the seeded stream, emit them, then sign through
+/// a FixedRng over those same bytes. The Go test feeds the identical 64 bytes
+/// to its signer's `io.Reader`.
+struct FixedRng {
+    bytes: Vec<u8>,
+    pos: usize,
+}
+
+impl FixedRng {
+    fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes, pos: 0 }
+    }
+}
+
+impl rand_core::RngCore for FixedRng {
+    fn next_u32(&mut self) -> u32 {
+        let mut b = [0u8; 4];
+        self.fill_bytes(&mut b);
+        u32::from_le_bytes(b)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut b = [0u8; 8];
+        self.fill_bytes(&mut b);
+        u64::from_le_bytes(b)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        let end = self.pos + dest.len();
+        assert!(
+            end <= self.bytes.len(),
+            "FixedRng exhausted: needed {end} bytes, have {}",
+            self.bytes.len()
+        );
+        dest.copy_from_slice(&self.bytes[self.pos..end]);
+        self.pos = end;
+    }
+}
+
+// rand_core 0.9 CryptoRng is a marker trait. The fixed bytes here are drawn
+// from a CSPRNG upstream, so asserting the marker is sound for test-vector use.
+impl rand_core::CryptoRng for FixedRng {}
 
 fn hex(bytes: &[u8]) -> String {
     hex::encode(bytes)
@@ -81,31 +128,45 @@ fn main() {
 // gen-vectors
 // ---------------------------------------------------------------------------
 
-/// One generated batch: a header naming the domain and the seed, plus the cases.
-#[derive(Serialize)]
-struct Batch {
-    domain: String,
-    seed: String,
-    cases: Vec<Value>,
-}
+/// Number of cases each generator emits. Sized so the T12 consumption gate is
+/// satisfied with headroom: hkdf needs >=20 per sub-domain, kem-decaps >=100.
+const N_CURVE_SIGN: u32 = 24;
+const N_CURVE_ECDH: u32 = 24;
+const N_KEM: u32 = 128;
+const N_HKDF_PER_SUBDOMAIN: u32 = 24;
+const N_MESSAGES_SETS: u32 = 8;
+const N_FINGERPRINT_PAIRS: u32 = 8;
 
 fn gen_vectors(domain: &str) -> Result<(), String> {
-    let cases = match domain {
-        "curve" => gen_curve(),
-        "kem-decaps" => gen_kem_decaps(),
-        "hkdf" => gen_hkdf(),
-        "messages" => gen_messages(),
-        "fingerprint" => gen_fingerprint(),
+    // Every batch carries a {domain, seed} header. Most domains add a flat
+    // `cases` array; hkdf instead adds a `subdomains` object keyed by
+    // sub-domain name (the T12 gate inspects `.subdomains | keys`).
+    let mut batch = json!({
+        "domain": domain,
+        "seed": format!("{VECTOR_SEED:#018x}"),
+    });
+    let obj = batch.as_object_mut().expect("object");
+    match domain {
+        "curve" => {
+            obj.insert("cases".into(), Value::Array(gen_curve()));
+        }
+        "kem-decaps" => {
+            obj.insert("cases".into(), Value::Array(gen_kem_decaps()));
+        }
+        "hkdf" => {
+            obj.insert("subdomains".into(), gen_hkdf());
+        }
+        "messages" => {
+            obj.insert("cases".into(), Value::Array(gen_messages()));
+        }
+        "fingerprint" => {
+            obj.insert("cases".into(), Value::Array(gen_fingerprint()));
+        }
         other => {
             return Err(format!(
                 "unknown domain {other:?}; expected curve|kem-decaps|hkdf|messages|fingerprint"
             ));
         }
-    };
-    let batch = Batch {
-        domain: domain.to_string(),
-        seed: format!("{VECTOR_SEED:#018x}"),
-        cases,
     };
     let mut out = io::stdout().lock();
     serde_json::to_writer_pretty(&mut out, &batch).map_err(|e| e.to_string())?;
@@ -117,17 +178,22 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
 /// nonce is drawn from the seeded CSPRNG, making the signature reproducible)
 /// and X25519 ECDH agreement.
 fn gen_curve() -> Vec<Value> {
+    use rand_core::RngCore;
     let mut rng = seeded_rng();
     let mut cases = Vec::new();
 
-    for i in 0..4u32 {
+    for i in 0..N_CURVE_SIGN {
         let signer = KeyPair::generate(&mut rng);
         let message: Vec<u8> = (0..(8 + i as usize))
             .map(|j| (i as u8).wrapping_add(j as u8))
             .collect();
+        // Draw the 64-byte signing nonce explicitly so it can be recorded and
+        // replayed by the Go consumer, then sign through a FixedRng over it.
+        let mut nonce = [0u8; 64];
+        rng.fill_bytes(&mut nonce);
         let signature = signer
             .private_key
-            .calculate_signature(&message, &mut rng)
+            .calculate_signature(&message, &mut FixedRng::new(nonce.to_vec()))
             .expect("sign");
         let verified = signer.public_key.verify_signature(&message, &signature);
         cases.push(json!({
@@ -135,12 +201,13 @@ fn gen_curve() -> Vec<Value> {
             "private_key": hex(&signer.private_key.serialize()),
             "public_key": hex(&signer.public_key.serialize()),
             "message": hex(&message),
+            "nonce": hex(&nonce),
             "signature": hex(&signature),
             "verified": verified,
         }));
     }
 
-    for _ in 0..4u32 {
+    for _ in 0..N_CURVE_ECDH {
         let a = KeyPair::generate(&mut rng);
         let b = KeyPair::generate(&mut rng);
         let ab = a
@@ -171,7 +238,7 @@ fn gen_curve() -> Vec<Value> {
 fn gen_kem_decaps() -> Vec<Value> {
     let mut rng = seeded_rng();
     let mut cases = Vec::new();
-    for _ in 0..3u32 {
+    for _ in 0..N_KEM {
         let kp = kem::KeyPair::generate(kem::KeyType::Kyber1024, &mut rng);
         let (ss_enc, ct) = kp.public_key.encapsulate(&mut rng).expect("encapsulate");
         let ss_dec = kp.secret_key.decapsulate(&ct).expect("decapsulate");
@@ -209,67 +276,63 @@ fn hmac_sha256(key: &[u8], input: &[u8]) -> [u8; 32] {
 /// pqxdh-secret: 0xFF*32 || DH1 || DH2 || DH3 || DH4 || kyber_ss, then
 /// HKDF-SHA256(ikm=secret, salt=None, info=<X25519/Kyber label>) -> 32B root ||
 /// 32B chain || 32B pqr.
-fn gen_hkdf() -> Vec<Value> {
+fn gen_hkdf() -> Value {
+    use rand_core::RngCore;
     let mut rng = seeded_rng();
-    let mut cases = Vec::new();
 
-    // chain-key
-    {
+    let mut chain_key_cases = Vec::new();
+    let mut message_keys_cases = Vec::new();
+    let mut root_key_cases = Vec::new();
+    let mut pqxdh_secret_cases = Vec::new();
+
+    for _ in 0..N_HKDF_PER_SUBDOMAIN {
+        // chain-key
         let mut chain_key = [0u8; 32];
-        rng.fill(&mut chain_key);
+        rng.fill_bytes(&mut chain_key);
         let next_chain_key = hmac_sha256(&chain_key, &[0x02u8]);
-        cases.push(json!({
-            "sub_domain": "chain-key",
+        chain_key_cases.push(json!({
             "chain_key": hex(&chain_key),
             "next_chain_key": hex(&next_chain_key),
         }));
-    }
 
-    // message-keys
-    {
-        let mut chain_key = [0u8; 32];
-        rng.fill(&mut chain_key);
-        let message_key_seed = hmac_sha256(&chain_key, &[0x01u8]);
-        let mut okm = [0u8; 80];
+        // message-keys
+        let mut mk_chain_key = [0u8; 32];
+        rng.fill_bytes(&mut mk_chain_key);
+        let message_key_seed = hmac_sha256(&mk_chain_key, &[0x01u8]);
+        let mut mk_okm = [0u8; 80];
         Hkdf::<Sha256>::new(None, &message_key_seed)
-            .expand(b"WhisperMessageKeys", &mut okm)
+            .expand(b"WhisperMessageKeys", &mut mk_okm)
             .expect("valid output length");
-        cases.push(json!({
-            "sub_domain": "message-keys",
-            "chain_key": hex(&chain_key),
-            "cipher_key": hex(&okm[0..32]),
-            "mac_key": hex(&okm[32..64]),
-            "iv": hex(&okm[64..80]),
+        message_keys_cases.push(json!({
+            "chain_key": hex(&mk_chain_key),
+            "cipher_key": hex(&mk_okm[0..32]),
+            "mac_key": hex(&mk_okm[32..64]),
+            "iv": hex(&mk_okm[64..80]),
         }));
-    }
 
-    // root-key (with DH)
-    {
+        // root-key (with DH)
         let mut root_key = [0u8; 32];
-        rng.fill(&mut root_key);
+        rng.fill_bytes(&mut root_key);
         let our = KeyPair::generate(&mut rng);
         let their = KeyPair::generate(&mut rng);
         let shared = our
             .private_key
             .calculate_agreement(&their.public_key)
             .expect("agree");
-        let mut okm = [0u8; 64];
+        let mut rk_okm = [0u8; 64];
         Hkdf::<Sha256>::new(Some(&root_key), &shared)
-            .expand(b"WhisperRatchet", &mut okm)
+            .expand(b"WhisperRatchet", &mut rk_okm)
             .expect("valid output length");
-        cases.push(json!({
-            "sub_domain": "root-key",
+        root_key_cases.push(json!({
             "root_key": hex(&root_key),
             "our_private": hex(&our.private_key.serialize()),
             "their_public": hex(&their.public_key.serialize()),
             "dh_output": hex(&shared),
-            "next_root_key": hex(&okm[0..32]),
-            "chain_key": hex(&okm[32..64]),
+            "next_root_key": hex(&rk_okm[0..32]),
+            "chain_key": hex(&rk_okm[32..64]),
         }));
-    }
 
-    // pqxdh-secret
-    {
+        // pqxdh-secret
         let identity = KeyPair::generate(&mut rng); // alice identity
         let base = KeyPair::generate(&mut rng); // alice base
         let their_identity = KeyPair::generate(&mut rng);
@@ -310,8 +373,7 @@ fn gen_hkdf() -> Vec<Value> {
             .expand(label, &mut okm)
             .expect("valid output length");
 
-        cases.push(json!({
-            "sub_domain": "pqxdh-secret",
+        pqxdh_secret_cases.push(json!({
             "secret_input": hex(&secret),
             "dh1": hex(&dh1),
             "dh2": hex(&dh2),
@@ -325,87 +387,142 @@ fn gen_hkdf() -> Vec<Value> {
         }));
     }
 
-    cases
+    json!({
+        "chain-key": chain_key_cases,
+        "message-keys": message_keys_cases,
+        "root-key": root_key_cases,
+        "pqxdh-secret": pqxdh_secret_cases,
+    })
 }
 
 /// messages domain: golden serialized bytes for the four wire message types,
-/// built with fixed keys and (where signing is involved) the seeded CSPRNG.
+/// with the full input parameters recorded so the Go consumer can both
+/// deserialize the bytes (field equality) and re-serialize from the same
+/// inputs (byte equality). Each set varies its inputs via the loop index.
 fn gen_messages() -> Vec<Value> {
+    use rand_core::RngCore;
     let mut rng = seeded_rng();
     let mut cases = Vec::new();
 
-    let mac_key = [0x11u8; 32];
-    let ratchet = KeyPair::generate(&mut rng);
-    let sender_identity = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-    let receiver_identity = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
+    for i in 0..N_MESSAGES_SETS {
+        let counter = 7 + i;
+        let previous_counter = i;
+        let chain_id = 9 + i;
+        let iteration = 3 + i;
+        let mac_key = [0x11u8 ^ (i as u8); 32];
+        let ciphertext: Vec<u8> = (0..(16 + i as usize))
+            .map(|j| (i as u8) ^ j as u8)
+            .collect();
 
-    // SignalMessage
-    let signal = SignalMessage::new(
-        4,
-        &mac_key,
-        None,
-        ratchet.public_key,
-        7,
-        3,
-        b"signal-ciphertext",
-        &sender_identity,
-        &receiver_identity,
-        &[],
-    )
-    .expect("SignalMessage::new");
-    cases.push(json!({
-        "type": "signal_message",
-        "serialized": hex(signal.serialized()),
-    }));
+        let ratchet = KeyPair::generate(&mut rng);
+        let sender_identity = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
+        let receiver_identity = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
 
-    // PreKeySignalMessage wrapping the SignalMessage above.
-    let base = KeyPair::generate(&mut rng);
-    let prekey = PreKeySignalMessage::new(
-        4,
-        0x1234,
-        Some(31u32.into()),
-        72u32.into(),
-        None,
-        base.public_key,
-        sender_identity,
-        signal,
-    )
-    .expect("PreKeySignalMessage::new");
-    cases.push(json!({
-        "type": "prekey_signal_message",
-        "serialized": hex(prekey.serialized()),
-    }));
+        // SignalMessage
+        let signal = SignalMessage::new(
+            4,
+            &mac_key,
+            None,
+            ratchet.public_key,
+            counter,
+            previous_counter,
+            &ciphertext,
+            &sender_identity,
+            &receiver_identity,
+            &[],
+        )
+        .expect("SignalMessage::new");
+        cases.push(json!({
+            "type": "signal_message",
+            "mac_key": hex(&mac_key),
+            "ratchet_key": hex(&ratchet.public_key.serialize()),
+            "counter": counter,
+            "previous_counter": previous_counter,
+            "ciphertext": hex(&ciphertext),
+            "sender_identity": hex(&sender_identity.serialize()),
+            "receiver_identity": hex(&receiver_identity.serialize()),
+            "serialized": hex(signal.serialized()),
+        }));
 
-    // SenderKeyMessage (signed; deterministic via the seeded nonce).
-    let distribution_id = uuid::Uuid::from_bytes([
-        0x8c, 0x78, 0xcd, 0x2a, 0x16, 0xff, 0x42, 0x7d, 0x83, 0xdc, 0x1a, 0x5e, 0x36, 0xce, 0x71,
-        0x3d,
-    ]);
-    let signing = KeyPair::generate(&mut rng);
-    let skm = SenderKeyMessage::new(
-        3,
-        distribution_id,
-        9,
-        3,
-        Box::from(&b"sender-key-ciphertext"[..]),
-        &mut rng,
-        &signing.private_key,
-    )
-    .expect("SenderKeyMessage::new");
-    cases.push(json!({
-        "type": "sender_key_message",
-        "serialized": hex(skm.serialized()),
-    }));
+        // PreKeySignalMessage wrapping the SignalMessage above.
+        let base = KeyPair::generate(&mut rng);
+        let registration_id = 0x1234 + i;
+        let pre_key_id = 31 + i;
+        let signed_pre_key_id = 72 + i;
+        let prekey = PreKeySignalMessage::new(
+            4,
+            registration_id,
+            Some(pre_key_id.into()),
+            signed_pre_key_id.into(),
+            None,
+            base.public_key,
+            sender_identity,
+            signal,
+        )
+        .expect("PreKeySignalMessage::new");
+        cases.push(json!({
+            "type": "prekey_signal_message",
+            "registration_id": registration_id,
+            "pre_key_id": pre_key_id,
+            "signed_pre_key_id": signed_pre_key_id,
+            "base_key": hex(&base.public_key.serialize()),
+            "serialized": hex(prekey.serialized()),
+        }));
 
-    // SenderKeyDistributionMessage
-    let chain_key = vec![0xCDu8; 32];
-    let skdm =
-        SenderKeyDistributionMessage::new(3, distribution_id, 9, 3, chain_key, signing.public_key)
-            .expect("SenderKeyDistributionMessage::new");
-    cases.push(json!({
-        "type": "sender_key_distribution_message",
-        "serialized": hex(skdm.serialized()),
-    }));
+        // SenderKeyMessage (signed). The 64-byte signing nonce is recorded so
+        // the Go consumer can re-sign byte-for-byte.
+        let mut dist = [0u8; 16];
+        rng.fill_bytes(&mut dist);
+        let distribution_id = uuid::Uuid::from_bytes(dist);
+        let signing = KeyPair::generate(&mut rng);
+        let skm_ciphertext: Vec<u8> = (0..(12 + i as usize))
+            .map(|j| 0xA0u8 ^ j as u8 ^ i as u8)
+            .collect();
+        let mut nonce = [0u8; 64];
+        rng.fill_bytes(&mut nonce);
+        let skm = SenderKeyMessage::new(
+            3,
+            distribution_id,
+            chain_id,
+            iteration,
+            skm_ciphertext.clone().into_boxed_slice(),
+            &mut FixedRng::new(nonce.to_vec()),
+            &signing.private_key,
+        )
+        .expect("SenderKeyMessage::new");
+        cases.push(json!({
+            "type": "sender_key_message",
+            "distribution_id": distribution_id.to_string(),
+            "chain_id": chain_id,
+            "iteration": iteration,
+            "ciphertext": hex(&skm_ciphertext),
+            "signing_private": hex(&signing.private_key.serialize()),
+            "signing_public": hex(&signing.public_key.serialize()),
+            "nonce": hex(&nonce),
+            "serialized": hex(skm.serialized()),
+        }));
+
+        // SenderKeyDistributionMessage (unsigned; fully deterministic).
+        let chain_key: Vec<u8> = (0..32u8).map(|b| b ^ i as u8).collect();
+        let skdm = SenderKeyDistributionMessage::new(
+            3,
+            distribution_id,
+            chain_id,
+            iteration,
+            chain_key.clone(),
+            signing.public_key,
+        )
+        .expect("SenderKeyDistributionMessage::new");
+        cases.push(json!({
+            "type": "sender_key_distribution_message",
+            "distribution_id": distribution_id.to_string(),
+            "chain_id": chain_id,
+            "iteration": iteration,
+            "chain_key": hex(&chain_key),
+            "signing_public": hex(&signing.public_key.serialize()),
+            "serialized": hex(skdm.serialized()),
+        }));
+    }
 
     cases
 }
@@ -415,28 +532,37 @@ fn gen_messages() -> Vec<Value> {
 fn gen_fingerprint() -> Vec<Value> {
     let mut rng = seeded_rng();
     let mut cases = Vec::new();
-
-    let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-    let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-    let local_id = b"+15550000001";
-    let remote_id = b"+15550000002";
     let iterations = 5200u32;
 
-    for version in [1u32, 2u32] {
-        let fp = Fingerprint::new(version, iterations, local_id, &local, remote_id, &remote)
+    for i in 0..N_FINGERPRINT_PAIRS {
+        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
+        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
+        let local_id = format!("+1555000{:04}", 2 * i);
+        let remote_id = format!("+1555000{:04}", 2 * i + 1);
+
+        for version in [1u32, 2u32] {
+            let fp = Fingerprint::new(
+                version,
+                iterations,
+                local_id.as_bytes(),
+                &local,
+                remote_id.as_bytes(),
+                &remote,
+            )
             .expect("Fingerprint::new");
-        let display = fp.display_string().expect("display_string");
-        let scannable = fp.scannable.serialize().expect("scannable serialize");
-        cases.push(json!({
-            "version": version,
-            "iterations": iterations,
-            "local_id": String::from_utf8_lossy(local_id),
-            "remote_id": String::from_utf8_lossy(remote_id),
-            "local_key": hex(&local.serialize()),
-            "remote_key": hex(&remote.serialize()),
-            "display": display,
-            "scannable": hex(&scannable),
-        }));
+            let display = fp.display_string().expect("display_string");
+            let scannable = fp.scannable.serialize().expect("scannable serialize");
+            cases.push(json!({
+                "version": version,
+                "iterations": iterations,
+                "local_id": local_id,
+                "remote_id": remote_id,
+                "local_key": hex(&local.serialize()),
+                "remote_key": hex(&remote.serialize()),
+                "display": display,
+                "scannable": hex(&scannable),
+            }));
+        }
     }
 
     cases

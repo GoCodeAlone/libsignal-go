@@ -1153,7 +1153,7 @@ dependencies = [
  "libsignal-protocol",
  "rand",
  "rand_chacha",
- "serde",
+ "rand_core 0.9.5",
  "serde_json",
  "sha2",
  "uuid",
