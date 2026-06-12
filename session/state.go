@@ -139,6 +139,57 @@ func (s *SessionState) ClearUnacknowledgedPreKeyMessage() {
 	s.structure.PendingKyberPreKey = nil
 }
 
+// SetUnacknowledgedPreKeyMessage records the pending (unacknowledged) pre-key
+// message on an initiator session: the optional one-time pre-key id, the
+// signed pre-key id, the initiator's base (ephemeral) public key, and the
+// creation time in whole seconds since the Unix epoch. Mirrors
+// SessionState::set_unacknowledged_pre_key_message in session.rs.
+func (s *SessionState) SetUnacknowledgedPreKeyMessage(preKeyID *uint32, signedPreKeyID uint32, baseKey curve.PublicKey, unixSeconds uint64) {
+	pending := &proto.SessionStructure_PendingPreKey{
+		SignedPreKeyId: int32(signedPreKeyID),
+		BaseKey:        baseKey.Serialize(),
+		Timestamp:      unixSeconds,
+	}
+	if preKeyID != nil {
+		id := *preKeyID
+		pending.PreKeyId = &id
+	}
+	s.structure.PendingPreKey = pending
+}
+
+// SetKyberCiphertext stores the initiator's Kyber ciphertext as a pending Kyber
+// pre-key, with the pre-key id left at its sentinel until
+// SetUnacknowledgedKyberPreKeyID sets the real id (mirrors
+// SessionState::set_kyber_ciphertext, which uses u32::MAX as the placeholder).
+func (s *SessionState) SetKyberCiphertext(ciphertext []byte) {
+	s.structure.PendingKyberPreKey = &proto.SessionStructure_PendingKyberPreKey{
+		PreKeyId:   ^uint32(0),
+		Ciphertext: cloneBytes(ciphertext),
+	}
+}
+
+// SetUnacknowledgedKyberPreKeyID sets the pending Kyber pre-key id, which must
+// already have been created by SetKyberCiphertext. Mirrors
+// SessionState::set_unacknowledged_kyber_pre_key_id.
+func (s *SessionState) SetUnacknowledgedKyberPreKeyID(id uint32) error {
+	if s.structure.PendingKyberPreKey == nil {
+		return fmt.Errorf("session: no pending Kyber pre-key to set id on")
+	}
+	s.structure.PendingKyberPreKey.PreKeyId = id
+	return nil
+}
+
+// UnacknowledgedKyberCiphertext returns the pending Kyber ciphertext (the
+// initiator's KEM ciphertext, to be relayed in the PreKeySignalMessage), and
+// whether one is pending.
+func (s *SessionState) UnacknowledgedKyberCiphertext() ([]byte, bool) {
+	pk := s.structure.GetPendingKyberPreKey()
+	if pk == nil {
+		return nil, false
+	}
+	return pk.GetCiphertext(), true
+}
+
 // SetSenderChain installs the sending chain from the local ratchet key pair and
 // its chain key (SessionState::set_sender_chain). The public + private ratchet
 // key are both stored (the local sender owns the private key).
