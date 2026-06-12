@@ -75,6 +75,13 @@ func (c ChainKey) String() string {
 	return fmt.Sprintf("ChainKey{index: %d, key: [redacted]}", c.index)
 }
 
+// Format intercepts every fmt verb — including Go-syntax %#v and %x — so the
+// key material can never leak through formatting that bypasses String().
+// Mirrors curve.PrivateKey.Format.
+func (c ChainKey) Format(f fmt.State, _ rune) {
+	_, _ = fmt.Fprintf(f, "ratchet.ChainKey{index: %d, key: [REDACTED]}", c.index)
+}
+
 // MessageKeys is the triple of symmetric keys for a single message: an AES
 // cipher key, an HMAC key, and an IV, plus the chain index they were derived
 // at. Mirrors MessageKeys in rust/protocol/src/ratchet/keys.rs.
@@ -112,6 +119,12 @@ func (m MessageKeys) Index() uint32 { return m.index }
 // String redacts the key material.
 func (m MessageKeys) String() string {
 	return fmt.Sprintf("MessageKeys{index: %d, cipherKey/macKey/iv: [redacted]}", m.index)
+}
+
+// Format intercepts every fmt verb (incl. %#v and %x) so the cipher key, MAC
+// key, and IV can never leak through formatting that bypasses String().
+func (m MessageKeys) Format(f fmt.State, _ rune) {
+	_, _ = fmt.Fprintf(f, "ratchet.MessageKeys{index: %d, cipherKey/macKey/iv: [REDACTED]}", m.index)
 }
 
 // RootKey is the Double Ratchet root key. Each DH ratchet step consumes the
@@ -162,6 +175,12 @@ func (r RootKey) CreateChain(theirRatchetKey curve.PublicKey, ourRatchetKey curv
 
 // String redacts the key material.
 func (r RootKey) String() string { return "RootKey{key: [redacted]}" }
+
+// Format intercepts every fmt verb (incl. %#v and %x) so the root key material
+// can never leak through formatting that bypasses String().
+func (r RootKey) Format(f fmt.State, _ rune) {
+	_, _ = fmt.Fprint(f, "ratchet.RootKey{key: [REDACTED]}")
+}
 
 // InitialKeys is the output of the PQXDH master-secret derivation: the initial
 // root key, the initial chain key, and the seed for the post-quantum ratchet

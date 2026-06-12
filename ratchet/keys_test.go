@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/GoCodeAlone/libsignal-go/curve"
@@ -277,5 +279,55 @@ func TestStringRedaction(t *testing.T) {
 	mk, _ := ck.MessageKeys()
 	if got := mk.String(); !bytes.Contains([]byte(got), []byte("redacted")) {
 		t.Fatalf("MessageKeys.String() missing redaction: %q", got)
+	}
+}
+
+// TestFormatRedaction confirms key material never leaks through ANY fmt verb,
+// including the Go-syntax %#v and the hex %x that String() does not intercept.
+// Each secret-bearing type must implement Format() (not just String()) — this
+// is the code-review fix: a String()-only type dumps its raw byte fields under
+// %#v. The key bytes are distinctive so any leak is detectable as hex.
+func TestFormatRedaction(t *testing.T) {
+	// Distinctive byte patterns; their hex must never appear in any formatting.
+	ck, _ := NewChainKey(bytes.Repeat([]byte{0xAB}, chainKeyLen), 9)
+	rk, _ := NewRootKey(bytes.Repeat([]byte{0xCD}, rootKeyLen))
+	mk, _ := ck.MessageKeys() // derives distinct cipher/mac/iv from the chain key
+
+	verbs := []string{"%v", "%s", "%+v", "%#v", "%x"}
+	// Hex fragments that would appear if a [N]byte field were dumped.
+	leakMarkers := []string{"abab", "cdcd"}
+
+	check := func(name string, val any) {
+		for _, verb := range verbs {
+			out := fmt.Sprintf(verb, val)
+			for _, marker := range leakMarkers {
+				if strings.Contains(strings.ToLower(out), marker) {
+					t.Fatalf("%s under %s leaks key material (found %q): %s", name, verb, marker, out)
+				}
+			}
+			// Also ensure raw [N]uint8{ Go-syntax field dumps don't slip through.
+			if strings.Contains(out, "uint8{") || strings.Contains(out, "[]byte{") {
+				t.Fatalf("%s under %s exposes raw byte fields: %s", name, verb, out)
+			}
+			if !strings.Contains(strings.ToUpper(out), "REDACTED") {
+				t.Fatalf("%s under %s missing REDACTED marker: %s", name, verb, out)
+			}
+		}
+	}
+
+	// Test both value and pointer forms (fmt dispatches Format on either when the
+	// method has a value receiver).
+	check("ChainKey", ck)
+	check("ChainKey ptr", &ck)
+	check("RootKey", rk)
+	check("RootKey ptr", &rk)
+	check("MessageKeys", mk)
+	check("MessageKeys ptr", &mk)
+
+	// Belt-and-suspenders: the MAC key bytes (derived, not 0xAB/0xCD) must also
+	// be absent from %#v of MessageKeys. Compare against the actual derived hex.
+	mkLeak := fmt.Sprintf("%#v", mk)
+	if strings.Contains(strings.ToLower(mkLeak), strings.ToLower(hex.EncodeToString(mk.MACKey()))) {
+		t.Fatalf("MessageKeys %%#v leaks derived MAC key: %s", mkLeak)
 	}
 }
