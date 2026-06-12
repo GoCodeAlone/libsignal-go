@@ -30,3 +30,9 @@ linters:
       - path: compat/vectors_test\.go
         linters:
           - gosec
+      # The ratchet KAT test reads the committed compat/vectors/hkdf.json fixture
+      # by a fixed relative path (G304) — same controlled-fixture pattern as the
+      # compat consumer above; a false positive in a test.
+      - path: ratchet/keys_test\.go
+        linters:
+          - gosec
