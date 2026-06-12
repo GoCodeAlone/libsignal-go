@@ -1,281 +1,119 @@
-# Overview
+# libsignal-go
 
-libsignal contains platform-agnostic APIs used by the official Signal clients and servers, exposed
-as a Java, Swift, or TypeScript library. The underlying implementations are written in Rust:
+A pure-Go implementation of the Signal client protocol core, wire-compatible
+with [`signalapp/libsignal`](https://github.com/signalapp/libsignal).
 
-- libsignal-protocol: Implements the Signal protocol, including the [Double Ratchet algorithm][]. A
-  replacement for [libsignal-protocol-java][] and [libsignal-metadata-java][].
-- signal-crypto: Cryptographic primitives such as AES-GCM. We use [RustCrypto][]'s where we can
-  but sometimes have differing needs.
-- device-transfer: Support logic for Signal's device-to-device transfer feature.
-- attest: Functionality for remote attestation of [SGX enclaves][] and server-side [HSMs][].
-- zkgroup: Functionality for [zero-knowledge groups][] and related features available in Signal.
-- zkcredential: An abstraction for the sort of zero-knowledge credentials used by zkgroup, based on the paper "[The Signal Private Group System][]" by Chase, Perrin, and Zaverucha.
-- poksho: Utilities for implementing zero-knowledge proofs (such as those used by zkgroup); stands for "proof-of-knowledge, stateful-hash-object".
-- account-keys: Functionality for consistently using [PINs][] as passwords in Signal's Secure Value Recovery system, as well as other account-wide key operations.
-- usernames: Functionality for username generation, hashing, and proofs.
-- media: Utilities for manipulating media.
+`libsignal-go` is built entirely on the Go standard library and a small set of
+pure-Go cryptography dependencies. **There is no cgo, C, or Rust in the
+shipped module** — it builds with `CGO_ENABLED=0` and cross-compiles like any
+ordinary Go package. The goal is byte-for-byte wire compatibility with the
+upstream Rust implementation for the client-side protocol surface, enforced by
+cross-implementation compatibility checks that run as required CI gates.
 
-This repository is used by the Signal client apps ([Android][], [iOS][], and [Desktop][]) as well as
-server-side. Use outside of Signal is unsupported. In particular, the products of this repository
-are the Java, Swift, and TypeScript libraries that wrap the underlying Rust implementations. All
-APIs and implementations are subject to change without notice, as are the JNI, C, and Node add-on
-"bridge" layers. However, backwards-incompatible changes to the Java, Swift, TypeScript, and
-non-bridge Rust APIs will be reflected in the version number on a best-effort basis, including
-increases to the minimum supported tools versions.
+> Status: early development. The API is unstable and will change without
+> notice until the `v0.1.0` tag. Not yet suitable for production use.
 
-[Double Ratchet algorithm]: https://signal.org/docs/
-[libsignal-protocol-java]: https://github.com/signalapp/libsignal-protocol-java
-[libsignal-metadata-java]: https://github.com/signalapp/libsignal-metadata-java
-[RustCrypto]: https://github.com/RustCrypto
-[Noise protocol]: http://noiseprotocol.org/
-[SGX enclaves]: https://www.intel.com/content/www/us/en/architecture-and-technology/software-guard-extensions.html
-[HSMs]: https://en.wikipedia.org/wiki/Hardware_security_module
-[zero-knowledge groups]: https://signal.org/blog/signal-private-group-system/
-[The Signal Private Group System]: https://eprint.iacr.org/2019/1416.pdf
-[PINs]: https://signal.org/blog/signal-pins/
-[Android]: https://github.com/signalapp/Signal-Android
-[iOS]: https://github.com/signalapp/Signal-iOS
-[Desktop]: https://github.com/signalapp/Signal-Desktop
+## Status
 
+The protocol is being implemented in phases. Each phase is one or more pull
+requests; compatibility is asserted incrementally as domains land.
 
-# Building
+| Phase | Scope | Status |
+|-------|-------|--------|
+| P1 | Scaffold: Go module, CI, repository cleanup | ✅ |
+| P2 | Crypto primitives, curve (X25519 / XEdDSA), address types | 🚧 |
+| P3 | KEM (Kyber1024), protobuf codegen, wire messages | 🚧 |
+| P4 | Compatibility harness: committed vectors + live Rust interop | 🚧 |
+| P5 | Ratchet keys, session state, stores | 🚧 |
+| P6 | PQXDH session builder + session cipher | 🚧 |
+| P7 | Groups: sender keys + group cipher | 🚧 |
+| P8 | Sealed sender v1/v2 + AES-256-GCM-SIV | 🚧 |
+| P9 | Fingerprints + API polish + scope matrix | 🚧 |
+| P10 | SPQR port + re-pin to mainline + full revalidation | 🚧 |
+| P11 | Cleanup: remove reference trees, final docs, `v0.1.0` | 🚧 |
 
-### Toolchain Installation
+✅ landed · 🚧 planned / in progress
 
-To build anything in this repository you must have [Rust](https://rust-lang.org) installed, as well
-as recent versions of Clang, libclang, [CMake](https://cmake.org), Make, protoc, Python (3.9+), and git.
+## Compatibility staging
 
-#### Linux/Debian
+Wire compatibility is asserted against a **pinned upstream tag**, not a moving
+target, so that the interop gate is meaningful and reproducible.
 
-On a Debian-like system, you can get these extra dependencies through `apt`:
+- **Stage 1 (current):** compatibility claims are bounded to the
+  **libsignal v0.91.1** protocol surface. This is the last upstream release
+  before the Sparse Post-Quantum Ratchet (SPQR) was made mandatory for new
+  sessions. The compat harness is pinned to `v0.91.1` and the committed test
+  vectors are generated from it.
+- **Stage 2 (after P10):** once SPQR is ported, the harness is re-pinned to the
+  current upstream mainline and the compatibility claim is upgraded
+  accordingly.
 
-```shell
-$ apt-get install clang libclang-dev cmake make protobuf-compiler libprotobuf-dev python3 git
-```
+The rationale, alternatives considered, and the exact pin boundary are recorded
+in [`decisions/0001-spqr-staged-compat.md`](decisions/0001-spqr-staged-compat.md).
 
-#### macOS
+The authoritative, per-domain implemented/excluded matrix lands with P9; until
+then the phase table above is the source of truth for what exists.
 
-On macOS, we have a best-effort maintained script to set up the Rust toolchain you can run by:
+## Reference tree
 
-```shell
-$ bin/mac_setup.sh
-```
+The upstream Rust sources live under [`rust/`](rust/) as a behavioral
+reference snapshot. They are **not built or shipped** — every crypto constant,
+KDF info string, version byte, MAC layout, and proto field number in the Go
+code is traced to a cited line in this tree and locked by a vector test. The
+`rust/` tree (along with the Cargo manifests and `rust-toolchain`) is removed
+at the `v0.1.0` tag once the Go implementation is self-sufficient and the
+compat harness no longer needs an in-tree reference. Git history preserves it
+regardless.
 
-## Rust
-
-### First Build and Test
-
-The build currently uses a specific version of the Rust nightly compiler, which
-will be downloaded automatically by cargo. To build and test the basic protocol
-libraries:
+## Installation
 
 ```shell
-$ cargo build
-...
-$ cargo test
-...
+go get github.com/GoCodeAlone/libsignal-go
 ```
 
-### Additional Rust Tools
+Requires Go 1.26 or newer. The module pins `toolchain go1.26.4`; a matching
+toolchain is fetched automatically by the `go` command if your local toolchain
+is older.
 
-The basic tools above should get you set up for most libsignal Rust development. 
+## Usage
 
-Eventually, you may find that you need some additional Rust tools like `cbindgen` to modify the bridges to the 
-client libraries or `taplo` for code formatting. 
-
-You should always install any Rust tools you need that may affect the build from cargo rather than from your system
-package manager (e.g. `apt` or `brew`). Package managers sometimes contain outdated versions of these tools that can break
-the build with incompatibility issues (especially cbindgen).
-
-To install the main Rust extra dependencies matching the versions we use, you can run the following commands:
+API documentation and usage examples will be added as the protocol surface
+lands (session round-trip, group messaging, and sealed sender examples arrive
+with P9). For now, see the package documentation:
 
 ```shell
-$ cargo +stable install --version "$(cat .cbindgen-version)" --locked cbindgen
-$ cargo +stable install --version "$(cat acknowledgments/cargo-about-version)" --locked cargo-about
-$ cargo +stable install --version "$(cat .taplo-cli-version)" --locked taplo-cli
-$ cargo +stable install cargo-fuzz
+go doc github.com/GoCodeAlone/libsignal-go
 ```
 
-## Java/Android
-
-### Toolchain Setup / Configuration
-
-To build for Android you must install several additional packages including a JDK,
-the Android NDK/SDK, and add the Android targets to the Rust compiler, using
-
-```rustup target add armv7-linux-androideabi aarch64-linux-android i686-linux-android x86_64-linux-android```
-
-Our officially supported JDK version for Android builds is JDK 17, so be sure to install e.g. OpenJDK 17, and then point JAVA_HOME to it.
-
-You can easily do this on macOS via:
+## Development
 
 ```shell
-export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+CGO_ENABLED=0 go build ./...   # build (no cgo, ever)
+go vet ./...
+gofmt -l .                     # must print nothing
+go test -race ./...
+golangci-lint run              # lint (config in .golangci.yml)
 ```
 
-On Linux, the way you do this varies by distribution. For Debian based distributions like Ubuntu, you can use:
+CI runs the same checks on Linux and macOS plus the cross-implementation
+compatibility suite. A single required status check named `go` gates merges to
+`main`.
 
-```shell
-sudo update-alternatives --config java
-```
+## Cryptography notice
 
-We also check-in a `.tools_version` file for use with runtime version managers.
-
-### Building and Testing
-
-To build the Java/Android ``jar`` and ``aar``, and run the tests:
-
-```shell
-$ cd java
-$ ./gradlew test
-$ ./gradlew build # if you need AAR outputs
-```
-
-You can pass `-P debugLevelLogs` to Gradle to build without filtering out debug- and verbose-level
-logs from Rust, and `-P jniTypeTagging` to enable additional checks in the Rust JNI bridging code.
-
-Alternately, a build system using Docker is available:
-
-```shell
-$ cd java
-$ make
-```
-
-When exposing new APIs to Java, you will need to run `rust/bridge/jni/bin/gen_java_decl.py` in
-addition to rebuilding. This requires installing the `cbindgen` Rust tool, as detailed above. 
-
-### Use as a library
-
-Signal publishes Java packages for its own use, under the names org.signal:libsignal-server,
-org.signal:libsignal-client, and org.signal:libsignal-android. libsignal-client and libsignal-server
-contain native libraries for Debian-flavored x86_64 Linux as well as Windows (x86_64) and macOS
-(x86_64 and arm64). libsignal-android contains native libraries for armeabi-v7a, arm64-v8a, x86, and
-x86_64 Android. These are located in a Maven repository at
-https://build-artifacts.signal.org/libraries/maven/; for use from Gradle, add the following to your
-`repositories` block:
-
-```
-maven {
-  name = "SignalBuildArtifacts"
-  // The "uri()" part is only necessary for Kotlin Gradle; Groovy Gradle accepts a bare string here.
-  url = uri("https://build-artifacts.signal.org/libraries/maven/")
-}
-```
-
-Older builds were published to [Maven Central](https://central.sonatype.org) instead.
-
-When building for Android you need *both* libsignal-android and libsignal-client, but the Windows
-and macOS libraries in libsignal-client won't automatically be excluded from your final app. You can
-explicitly exclude them using `packaging`:
-
-```
-android {
-  // ...
-  packaging {
-    resources {
-      excludes += setOf("libsignal_jni*.dylib", "signal_jni*.dll")
-    }
-  }
-  // ...
-}
-```
-
-You can additionally exclude `libsignal_jni_testing.so` if you do not plan to use any of the APIs
-intended for client testing.
-
-### Testing a local build with Signal-Android
-
-The Signal-Android gradle.properties file has a commented-out line to include libsignal as part of the build. Uncomment that and adjust the path; optionally, you can restrict the architectures you want to build for by adding `androidArchs=aarch64` to *libsignal's* gradle.properties. (The set of recognized architectures is in java/build_jni.sh.) If you're using an IDE, you'll need to re-import the Gradle structure at this point. When you're done, revert the changes to the Android app's gradle.properties and re-import once more.
-
-Note that this does not import the *Rust* parts of the project into the IDE. Doing that in a multi-language IDE like IDEA is possible, but finicky; as of 2025 the most reliable way to do it is to open the Android project first, add the libsignal repo root directory as a Rust project second (only including the top-level directory), and only then make the changes to gradle.properties.
-
-
-## Swift
-
-To learn about the Swift build process see [``swift/README.md``](swift/)
-
-
-## Node
-
-You'll need Node installed to build. If you have [nvm][], you can run `nvm use` to select an
-appropriate version automatically.
-
-We use `npm` as our package manager, and a Python script to control building the Rust library, accessible as `npm run build`.
-
-```shell
-$ cd node
-$ nvm use
-$ npm install
-$ npm run build
-$ npm run tsc
-$ npm run test
-```
-
-When testing changes locally, you can use `npm run build` to do an incremental rebuild of the Rust library. Alternately, `npm run build-with-debug-level-logs` will rebuild without filtering out debug- and verbose-level logs.
-
-When exposing new APIs to Node, you will need to run `just generate-node` in
-addition to rebuilding.
-
-[nvm]: https://github.com/nvm-sh/nvm
-
-### NPM
-
-Signal publishes the NPM package `@signalapp/libsignal-client` for its own use, including native
-libraries for Windows, macOS, and Debian-flavored Linux. Both x64 and arm64 builds are included for
-all three platforms, but the arm64 builds for Windows and Linux are considered experimental, since
-there are no official builds of Signal for those architectures.
-
-### Testing a local build with Signal-Desktop
-
-After running all the build commands above, adjust the `@signalapp/libsignal-client` dependency in the Desktop app's package.json to "link:path/to/libsignal/node" and run `pnpm install`. When you're done, revert the changes to package.json and run `pnpm install` again.
-
-
-# Contributions
-
-Signal does accept external contributions to this project. However unless the change is
-simple and easily understood, for example fixing a bug or portability issue, adding a new
-test, or improving performance, first open an issue to discuss your intended change as not
-all changes can be accepted.
-
-Contributions that will not be used directly by one of Signal's official client apps may still be
-considered, but only if they do not pose an undue maintenance burden or conflict with the goals of
-the project.
-
-Signing a [CLA (Contributor License Agreement)](https://signal.org/cla/) is required for all contributions.
-
-## Code Formatting and Acknowledgments
-
-You can run the styler on the entire project by running:
-
-```shell
-just format-all
-```
-
-You can run more extensive tests as well as linters and clippy by running:
-
-```shell
-just check-pre-commit
-```
-
-When making a PR that adjusts dependencies, you'll need to regenerate our acknowledgments files. See [``acknowledgments/README.md``](acknowledgments/).
-
-# Legal things
-## Cryptography Notice
-
-This distribution includes cryptographic software. The country in which you currently reside may have restrictions on
-the import, possession, use, and/or re-export to another country, of encryption software.  BEFORE using any encryption
-software, please check your country's laws, regulations and policies concerning the import, possession, or use, and
-re-export of encryption software, to see if this is permitted.  See <http://www.wassenaar.org/> for more information.
-
-The U.S. Government Department of Commerce, Bureau of Industry and Security (BIS), has classified this software as
-Export Commodity Control Number (ECCN) 5D002.C.1, which includes information security software using or performing
-cryptographic functions with asymmetric algorithms.  The form and manner of this distribution makes it eligible for
-export under the License Exception ENC Technology Software Unrestricted (TSU) exception (see the BIS Export
-Administration Regulations, Section 740.13) for both object code and source code.
+This distribution includes cryptographic software. The country in which you
+currently reside may have restrictions on the import, possession, use, and/or
+re-export to another country of encryption software. Before using any
+encryption software, please check your country's laws, regulations, and
+policies concerning the import, possession, or use, and re-export of encryption
+software. See <https://www.wassenaar.org/> for more information.
 
 ## License
 
-Copyright 2020-2026 Signal Messenger, LLC
+Copyright the `libsignal-go` contributors.
+Portions derived from `signalapp/libsignal`, Copyright 2020-2026 Signal
+Messenger, LLC.
 
-Licensed under the GNU AGPLv3: https://www.gnu.org/licenses/agpl-3.0.html
+Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See
+[`LICENSE`](LICENSE) for the full text, or
+<https://www.gnu.org/licenses/agpl-3.0.html>.
