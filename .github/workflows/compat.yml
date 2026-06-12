@@ -1,0 +1,63 @@
+#
+# Copyright 2026 libsignal-go contributors.
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# compat-interop: builds the v0.91.0-pinned Rust harness and runs the live
+# JSON-RPC interop tests (compat/interop_test.go, build tag `interop`) against
+# it, asserting the pure-Go implementation agrees with upstream on live
+# operations. The committed-vector tests run in the `go` workflow with no Rust
+# toolchain; this workflow covers the operations only meaningful live.
+#
+# No `paths:` filter on pull_request: this is a required status check, and a
+# required check must report on EVERY PR (a path-filtered check is reported as
+# "skipped/pending" and can block merge on PRs that do not touch the filtered
+# paths). The Rust toolchain + build cache keep the common no-op PR cheap.
+
+name: compat
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  compat-interop:
+    name: compat-interop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          # Honors the `toolchain go1.26.4` directive in go.mod.
+          go-version-file: go.mod
+          check-latest: true
+
+      # protoc is REQUIRED: upstream libsignal-protocol's build.rs compiles its
+      # .proto files via prost-build 0.14, which does not vendor a protoc binary
+      # (see compat/rust-harness/README.md). Without it the harness build fails
+      # at "Could not find `protoc`".
+      - name: install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # No explicit toolchain action: the harness directory's rust-toolchain.toml
+      # pins the channel, and rustup (preinstalled on ubuntu-latest) fetches it
+      # on demand when cargo runs there.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compat/rust-harness
+
+      - name: build rust harness (release)
+        working-directory: compat/rust-harness
+        run: cargo build --release
+
+      - name: interop tests
+        env:
+          COMPAT_HARNESS_BIN: ${{ github.workspace }}/compat/rust-harness/target/release/rust-harness
+        run: go test ./compat/ -tags=interop -v

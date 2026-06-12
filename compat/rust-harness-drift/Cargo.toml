@@ -1,0 +1,41 @@
+#
+# Copyright 2026 libsignal-go contributors.
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Drift micro-crate: a deliberately minimal sibling of compat/rust-harness that
+# tracks upstream libsignal's `main` branch (NOT the v0.91.0 pin) so the weekly
+# compat-drift workflow can detect when upstream changes the bytes of a
+# version-stable primitive. It generates ONLY version-stable domains
+# (curve / hkdf / kem) as KATs and emits the SAME vector JSON schema that
+# compat/vectors_test.go consumes.
+#
+# Hard constraint: this crate carries NO session/group/message/fingerprint API
+# surface. Those domains live ONLY in compat/rust-harness and are extended there
+# by T19/T21/T24/T28 — never here. Keeping this crate to stable primitives is
+# what lets it float on `main` without constant churn.
+
+[package]
+name = "rust-harness-drift"
+version = "0.1.0"
+edition = "2021"
+
+# Isolated workspace: never pulled into a parent workspace, mirroring
+# compat/rust-harness and upstream's cross-version-testing crate.
+[workspace]
+members = ["."]
+
+[dependencies]
+# Repointed to upstream `main` (the drift target). The compat-drift workflow
+# may further override this via `cargo update` / a git-dep branch bump; the
+# v0.91.0 contract lives in the sibling compat/rust-harness, not here.
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", branch = "main", package = "libsignal-protocol" }
+rand = "0.9"
+rand_chacha = "0.9"
+rand_core = "0.9"
+# Same primitive crates as the pinned harness so the hkdf domain reproduces the
+# pub(crate) ratchet derivations identically.
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+serde_json = "1"
+hex = "0.4"
