@@ -12,6 +12,7 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/internal/crypto"
 	"github.com/GoCodeAlone/libsignal-go/protocol"
 	"github.com/GoCodeAlone/libsignal-go/ratchet"
+	"github.com/GoCodeAlone/libsignal-go/stores"
 )
 
 // MaxForwardJumps caps how many message keys a receive may skip ahead in one
@@ -50,8 +51,8 @@ func Encrypt(
 	ctx context.Context,
 	plaintext []byte,
 	remoteAddress address.ProtocolAddress,
-	sessionStore SessionStore,
-	identityStore IdentityKeyStore,
+	sessionStore Store,
+	identityStore stores.IdentityKeyStore,
 	clock Clock,
 ) (*protocol.SignalMessage, *protocol.PreKeySignalMessage, error) {
 	record, err := sessionStore.LoadSession(ctx, remoteAddress)
@@ -139,7 +140,7 @@ func Encrypt(
 
 	// Trust-check the recipient identity (Sending) and record it, mirroring
 	// message_encrypt's post-build check + save_identity.
-	trusted, err := identityStore.IsTrustedIdentity(ctx, remoteAddress, receiverID, DirectionSending)
+	trusted, err := identityStore.IsTrustedIdentity(ctx, remoteAddress, receiverID, stores.Sending)
 	if err != nil {
 		return nil, nil, fmt.Errorf("session: trust check: %w", err)
 	}
@@ -170,7 +171,7 @@ func Decrypt(
 	ctx context.Context,
 	ciphertext *protocol.SignalMessage,
 	remoteAddress address.ProtocolAddress,
-	sessionStore SessionStore,
+	sessionStore Store,
 	rng io.Reader,
 ) ([]byte, error) {
 	record, err := sessionStore.LoadSession(ctx, remoteAddress)

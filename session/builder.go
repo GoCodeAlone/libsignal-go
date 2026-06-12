@@ -11,39 +11,23 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/kem"
 	"github.com/GoCodeAlone/libsignal-go/ratchet"
+	"github.com/GoCodeAlone/libsignal-go/stores"
 )
 
-// The store interfaces are declared locally (not imported from stores/) because
-// stores/ depends on session/ for SessionRecord — importing stores here would
-// cycle. These mirror the subset of stores.IdentityKeyStore / stores.SessionStore
-// that session establishment needs; any concrete store satisfies them
-// structurally. TrustDirection mirrors stores.Direction's Sending value.
+// Store is the session store interface. It lives here rather than in stores/
+// because it is the only store that references *SessionRecord — keeping it in
+// stores/ would make stores/ import session/ and cycle. The remaining store
+// interfaces (identity, pre-key, etc.) stay in stores/, which is now a leaf;
+// stores/inmem provides an InMemSessionStore that satisfies this interface.
+type Store interface {
+	// LoadSession returns the session record for address, or (nil, nil) when no
+	// session is stored — mirroring upstream's Option<SessionRecord> return,
+	// where a nil record means "absent" rather than an error.
+	LoadSession(ctx context.Context, address address.ProtocolAddress) (*SessionRecord, error)
 
-// TrustDirection is the role an identity is checked for when deciding trust,
-// mirroring stores.Direction. Session establishment only ever checks Sending.
-type TrustDirection int
-
-const (
-	// DirectionSending is the context of sending a message to the identity.
-	DirectionSending TrustDirection = iota
-	// DirectionReceiving is the context of receiving a message from the identity.
-	DirectionReceiving
-)
-
-// IdentityKeyStore is the subset of the identity store session establishment
-// needs (mirrors stores.IdentityKeyStore).
-type IdentityKeyStore interface {
-	GetIdentityKeyPair(ctx context.Context) (curve.KeyPair, error)
-	GetLocalRegistrationID(ctx context.Context) (uint32, error)
-	SaveIdentity(ctx context.Context, addr address.ProtocolAddress, identity curve.PublicKey) (bool, error)
-	IsTrustedIdentity(ctx context.Context, addr address.ProtocolAddress, identity curve.PublicKey, direction TrustDirection) (bool, error)
-}
-
-// SessionStore is the subset of the session store session establishment needs
-// (mirrors stores.SessionStore).
-type SessionStore interface {
-	LoadSession(ctx context.Context, addr address.ProtocolAddress) (*SessionRecord, error)
-	StoreSession(ctx context.Context, addr address.ProtocolAddress, record *SessionRecord) error
+	// StoreSession sets the session record for address, overwriting any existing
+	// entry.
+	StoreSession(ctx context.Context, address address.ProtocolAddress, record *SessionRecord) error
 }
 
 // Errors returned by session establishment. All are %w-wrappable and
@@ -93,13 +77,13 @@ func ProcessPreKeyBundle(
 	rng io.Reader,
 	remoteAddress address.ProtocolAddress,
 	bundle *PreKeyBundle,
-	sessionStore SessionStore,
-	identityStore IdentityKeyStore,
+	sessionStore Store,
+	identityStore stores.IdentityKeyStore,
 ) error {
 	theirIdentity := bundle.IdentityKey()
 
 	// 1. Identity trust check (Sending direction).
-	trusted, err := identityStore.IsTrustedIdentity(ctx, remoteAddress, theirIdentity, DirectionSending)
+	trusted, err := identityStore.IsTrustedIdentity(ctx, remoteAddress, theirIdentity, stores.Sending)
 	if err != nil {
 		return fmt.Errorf("session: trust check: %w", err)
 	}

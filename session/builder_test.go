@@ -13,6 +13,7 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/kem"
+	"github.com/GoCodeAlone/libsignal-go/stores"
 )
 
 // --- in-test store fakes implementing the session-local store interfaces ---
@@ -49,19 +50,31 @@ func (s *fakeIdentityStore) GetLocalRegistrationID(_ context.Context) (uint32, e
 	return s.regID, nil
 }
 
-func (s *fakeIdentityStore) SaveIdentity(_ context.Context, addr address.ProtocolAddress, identity curve.PublicKey) (bool, error) {
+func (s *fakeIdentityStore) SaveIdentity(_ context.Context, addr address.ProtocolAddress, identity curve.PublicKey) (stores.IdentityChange, error) {
 	prev, existed := s.trusted[addr.String()]
 	s.trusted[addr.String()] = identity
 	s.saveCalls++
-	return existed && !prev.Equal(identity), nil
+	return stores.IdentityChangeFromReplaced(existed && !prev.Equal(identity)), nil
 }
 
-func (s *fakeIdentityStore) IsTrustedIdentity(_ context.Context, addr address.ProtocolAddress, identity curve.PublicKey, _ TrustDirection) (bool, error) {
+func (s *fakeIdentityStore) IsTrustedIdentity(_ context.Context, addr address.ProtocolAddress, identity curve.PublicKey, _ stores.Direction) (bool, error) {
 	if rec, ok := s.trusted[addr.String()]; ok {
 		return rec.Equal(identity), nil
 	}
 	return s.trustAll, nil
 }
+
+// GetIdentity satisfies stores.IdentityKeyStore (unused by the builder path).
+func (s *fakeIdentityStore) GetIdentity(_ context.Context, addr address.ProtocolAddress) (curve.PublicKey, bool, error) {
+	pk, ok := s.trusted[addr.String()]
+	return pk, ok, nil
+}
+
+// Compile-time checks that the fakes satisfy the real store interfaces.
+var (
+	_ stores.IdentityKeyStore = (*fakeIdentityStore)(nil)
+	_ Store                   = (*fakeSessionStore)(nil)
+)
 
 type fakeSessionStore struct {
 	records map[string][]byte // address.String() -> serialized SessionRecord
