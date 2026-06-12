@@ -34,8 +34,8 @@ use serde_json::{json, Value};
 use sha2::Sha256;
 
 use libsignal_protocol::{
-    kem, Fingerprint, IdentityKey, KeyPair, PreKeySignalMessage, PrivateKey, PublicKey,
-    SenderKeyDistributionMessage, SenderKeyMessage, SignalMessage,
+    kem, Fingerprint, IdentityKey, KeyPair, KyberPayload, PreKeySignalMessage, PrivateKey,
+    PublicKey, SenderKeyDistributionMessage, SenderKeyMessage, SignalMessage,
 };
 
 /// Fixed seed for the deterministic CSPRNG. Recorded in every batch header so a
@@ -449,12 +449,21 @@ fn gen_messages() -> Vec<Value> {
         let registration_id = 0x1234 + i;
         let pre_key_id = 31 + i;
         let signed_pre_key_id = 72 + i;
+        let kyber_pre_key_id = 90 + i;
+        // A v4 PreKeySignalMessage requires a Kyber payload (the message is
+        // rejected on deserialize otherwise). Encapsulate to a fresh Kyber key
+        // and carry the ciphertext.
+        let kyber = kem::KeyPair::generate(kem::KeyType::Kyber1024, &mut rng);
+        let (_kyber_ss, kyber_ct) = kyber
+            .public_key
+            .encapsulate(&mut rng)
+            .expect("kyber encapsulate");
         let prekey = PreKeySignalMessage::new(
             4,
             registration_id,
             Some(pre_key_id.into()),
             signed_pre_key_id.into(),
-            None,
+            Some(KyberPayload::new(kyber_pre_key_id.into(), kyber_ct.clone())),
             base.public_key,
             sender_identity,
             signal,
@@ -465,6 +474,8 @@ fn gen_messages() -> Vec<Value> {
             "registration_id": registration_id,
             "pre_key_id": pre_key_id,
             "signed_pre_key_id": signed_pre_key_id,
+            "kyber_pre_key_id": kyber_pre_key_id,
+            "kyber_ciphertext": hex(&kyber_ct),
             "base_key": hex(&base.public_key.serialize()),
             "serialized": hex(prekey.serialized()),
         }));

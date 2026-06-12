@@ -71,13 +71,15 @@ files.
   implemented in the test against `crypto/{hkdf,hmac,sha256}`, with formulas
   from `rust/protocol/src/ratchet/keys.rs`. When T14 lands they move into
   `ratchet/` and these committed vectors become its contract.
-- **messages** — `SenderKeyMessage` and `SenderKeyDistributionMessage` are
-  consumed both directions (deserialize → field equality; re-serialize → byte
-  equality, replaying the recorded signing nonce). `SignalMessage` and
-  `PreKeySignalMessage` are **not yet in the Go `protocol` package on this
-  branch** (they are T9 work on the PR 3 wire branch); their vectors are asserted
-  to parse, with a `TODO(PR3/T9)` for full consumption once both PRs land on
-  `main`.
+- **messages** — all four wire message types (`SignalMessage`,
+  `PreKeySignalMessage`, `SenderKeyMessage`, `SenderKeyDistributionMessage`) are
+  consumed both directions: deserialize the upstream golden bytes and check
+  field equality, then re-serialize and check byte equality with upstream.
+  `SenderKeyMessage` re-signs by replaying the recorded nonce; `SignalMessage`
+  rebuilds from the recorded mac key + identities (its MAC is keyed and cannot be
+  recovered from the message); `PreKeySignalMessage` re-wraps its deserialized
+  inner `SignalMessage`. The `PreKeySignalMessage` cases carry a Kyber payload, as
+  a v4 message requires.
 - **fingerprint** — the Go fingerprint package does not exist yet (**T25**); the
   vectors are asserted to parse with cases present, with a `TODO(T25)` consuming
   test.

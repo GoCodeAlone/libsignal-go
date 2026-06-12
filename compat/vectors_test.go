@@ -321,12 +321,10 @@ func TestHKDFVectors(t *testing.T) {
 
 // --- messages ---
 //
-// SenderKeyMessage and SenderKeyDistributionMessage are consumed both
-// directions (deserialize -> field equality, and re-serialize -> byte
-// equality). SignalMessage and PreKeySignalMessage are NOT yet in the Go
-// protocol package on this branch (they are T9 work on the PR 3 wire branch);
-// for those we assert the vector cases are present and parse, and leave a
-// TODO(PR3/T9) for the consuming test once they land on main. See compat/README.md.
+// All four wire message types are consumed both directions: deserialize the
+// upstream golden bytes and check field equality, then re-serialize (re-signing
+// where applicable, replaying the recorded nonce) and check byte equality with
+// upstream.
 
 type messageCase struct {
 	Type string `json:"type"`
@@ -339,7 +337,22 @@ type messageCase struct {
 	SigningPublic  string `json:"signing_public"`
 	Nonce          string `json:"nonce"`
 	ChainKey       string `json:"chain_key"`
-	Serialized     string `json:"serialized"`
+	// signal_message fields
+	MacKey           string `json:"mac_key"`
+	RatchetKey       string `json:"ratchet_key"`
+	Counter          uint32 `json:"counter"`
+	PreviousCounter  uint32 `json:"previous_counter"`
+	SenderIdentity   string `json:"sender_identity"`
+	ReceiverIdentity string `json:"receiver_identity"`
+	// prekey_signal_message fields
+	RegistrationID  uint32 `json:"registration_id"`
+	PreKeyID        uint32 `json:"pre_key_id"`
+	SignedPreKeyID  uint32 `json:"signed_pre_key_id"`
+	KyberPreKeyID   uint32 `json:"kyber_pre_key_id"`
+	KyberCiphertext string `json:"kyber_ciphertext"`
+	BaseKey         string `json:"base_key"`
+
+	Serialized string `json:"serialized"`
 }
 
 func TestMessagesVectors(t *testing.T) {
@@ -355,26 +368,144 @@ func TestMessagesVectors(t *testing.T) {
 	for i, c := range batch.Cases {
 		counts[c.Type]++
 		switch c.Type {
+		case "signal_message":
+			testSignalMessageCase(t, i, c)
+		case "prekey_signal_message":
+			testPreKeySignalMessageCase(t, i, c)
 		case "sender_key_message":
 			testSenderKeyMessageCase(t, i, c)
 		case "sender_key_distribution_message":
 			testSenderKeyDistributionMessageCase(t, i, c)
-		case "signal_message", "prekey_signal_message":
-			// TODO(PR3/T9): consume once SignalMessage/PreKeySignalMessage land
-			// in the Go protocol package on this branch. For now assert the
-			// golden bytes are present and well-formed hex.
-			if len(mustHex(t, c.Serialized)) == 0 {
-				t.Fatalf("case %d (%s): empty serialized bytes", i, c.Type)
-			}
 		default:
 			t.Fatalf("case %d: unknown message type %q", i, c.Type)
 		}
 	}
 
-	t.Logf("messages: %d sender_key_message, %d sender_key_distribution_message consumed both directions; "+
-		"%d signal_message + %d prekey_signal_message parsed (TODO(PR3/T9) full consumption)",
-		counts["sender_key_message"], counts["sender_key_distribution_message"],
-		counts["signal_message"], counts["prekey_signal_message"])
+	t.Logf("messages: all four types consumed both directions — %d signal_message, "+
+		"%d prekey_signal_message, %d sender_key_message, %d sender_key_distribution_message",
+		counts["signal_message"], counts["prekey_signal_message"],
+		counts["sender_key_message"], counts["sender_key_distribution_message"])
+}
+
+func testSignalMessageCase(t *testing.T, i int, c messageCase) {
+	t.Helper()
+	want := mustHex(t, c.Serialized)
+
+	ratchet, err := curve.DeserializePublicKey(mustHex(t, c.RatchetKey))
+	if err != nil {
+		t.Fatalf("case %d: ratchet_key: %v", i, err)
+	}
+	senderID, err := curve.DeserializePublicKey(mustHex(t, c.SenderIdentity))
+	if err != nil {
+		t.Fatalf("case %d: sender_identity: %v", i, err)
+	}
+	receiverID, err := curve.DeserializePublicKey(mustHex(t, c.ReceiverIdentity))
+	if err != nil {
+		t.Fatalf("case %d: receiver_identity: %v", i, err)
+	}
+
+	// Deserialize upstream bytes -> field equality.
+	msg, err := protocol.DeserializeSignalMessage(want)
+	if err != nil {
+		t.Fatalf("case %d: DeserializeSignalMessage: %v", i, err)
+	}
+	if msg.Counter() != c.Counter || msg.PreviousCounter() != c.PreviousCounter {
+		t.Fatalf("case %d: counter/previous = %d/%d, want %d/%d", i, msg.Counter(), msg.PreviousCounter(), c.Counter, c.PreviousCounter)
+	}
+	if !bytes.Equal(msg.Body(), mustHex(t, c.Ciphertext)) {
+		t.Fatalf("case %d: body mismatch", i)
+	}
+	if !msg.SenderRatchetKey().Equal(ratchet) {
+		t.Fatalf("case %d: ratchet key mismatch", i)
+	}
+	// The MAC verifies under the recorded identity keys + mac key.
+	ok, err := msg.VerifyMAC(senderID, receiverID, mustHex(t, c.MacKey))
+	if err != nil {
+		t.Fatalf("case %d: VerifyMAC: %v", i, err)
+	}
+	if !ok {
+		t.Fatalf("case %d: MAC failed to verify", i)
+	}
+
+	// Re-serialize from the same inputs (the MAC is keyed, so it can only be
+	// recomputed from the mac key + identities, not recovered from the message)
+	// -> byte equality with upstream.
+	rebuilt, err := protocol.NewSignalMessage(
+		msg.MessageVersion(),
+		mustHex(t, c.MacKey),
+		ratchet,
+		c.Counter,
+		c.PreviousCounter,
+		mustHex(t, c.Ciphertext),
+		senderID,
+		receiverID,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("case %d: NewSignalMessage: %v", i, err)
+	}
+	if !bytes.Equal(rebuilt.Serialize(), want) {
+		t.Fatalf("case %d: re-serialized != upstream\n go   %x\n want %x", i, rebuilt.Serialize(), want)
+	}
+}
+
+func testPreKeySignalMessageCase(t *testing.T, i int, c messageCase) {
+	t.Helper()
+	want := mustHex(t, c.Serialized)
+
+	baseKey, err := curve.DeserializePublicKey(mustHex(t, c.BaseKey))
+	if err != nil {
+		t.Fatalf("case %d: base_key: %v", i, err)
+	}
+
+	// Deserialize upstream bytes -> field equality.
+	msg, err := protocol.DeserializePreKeySignalMessage(want)
+	if err != nil {
+		t.Fatalf("case %d: DeserializePreKeySignalMessage: %v", i, err)
+	}
+	if msg.RegistrationID() != c.RegistrationID {
+		t.Fatalf("case %d: registration_id = %d, want %d", i, msg.RegistrationID(), c.RegistrationID)
+	}
+	if msg.PreKeyID() == nil || *msg.PreKeyID() != c.PreKeyID {
+		t.Fatalf("case %d: pre_key_id = %v, want %d", i, msg.PreKeyID(), c.PreKeyID)
+	}
+	if msg.SignedPreKeyID() != c.SignedPreKeyID {
+		t.Fatalf("case %d: signed_pre_key_id = %d, want %d", i, msg.SignedPreKeyID(), c.SignedPreKeyID)
+	}
+	if msg.KyberPreKeyID() == nil || *msg.KyberPreKeyID() != c.KyberPreKeyID {
+		t.Fatalf("case %d: kyber_pre_key_id = %v, want %d", i, msg.KyberPreKeyID(), c.KyberPreKeyID)
+	}
+	if !bytes.Equal(msg.KyberCiphertext(), mustHex(t, c.KyberCiphertext)) {
+		t.Fatalf("case %d: kyber_ciphertext mismatch", i)
+	}
+	if !msg.BaseKey().Equal(baseKey) {
+		t.Fatalf("case %d: base key mismatch", i)
+	}
+	if msg.Message() == nil {
+		t.Fatalf("case %d: nil inner SignalMessage", i)
+	}
+
+	// Re-serialize from the parsed fields (the wrapped SignalMessage carries its
+	// own already-computed MAC, so re-wrapping the deserialized inner message
+	// reproduces the bytes) -> byte equality with upstream.
+	rebuilt, err := protocol.NewPreKeySignalMessage(
+		msg.MessageVersion(),
+		msg.RegistrationID(),
+		msg.PreKeyID(),
+		msg.SignedPreKeyID(),
+		msg.KyberPreKeyID(),
+		msg.KyberCiphertext(),
+		msg.BaseKey(),
+		msg.IdentityKey(),
+		msg.Message(),
+	)
+	if err != nil {
+		t.Fatalf("case %d: NewPreKeySignalMessage: %v", i, err)
+	}
+	if !bytes.Equal(rebuilt.Serialize(), want) {
+		t.Fatalf("case %d: re-serialized != upstream\n go   %x\n want %x", i, rebuilt.Serialize(), want)
+	}
 }
 
 // parseUUID16 decodes a canonical UUID string into a 16-byte array.
