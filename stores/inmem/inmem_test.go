@@ -236,7 +236,9 @@ func TestPreKeyStoreAllIDs(t *testing.T) {
 	ctx := context.Background()
 	s := NewPreKeyStore()
 	for _, id := range []uint32{3, 1, 2} {
-		if err := s.SavePreKey(ctx, id, []byte{byte(id)}); err != nil {
+		// The record body is an arbitrary per-id marker; the low byte suffices
+		// and the mask makes the uint32->byte truncation explicit (gosec G115).
+		if err := s.SavePreKey(ctx, id, []byte{byte(id & 0xFF)}); err != nil {
 			t.Fatalf("SavePreKey(%d): %v", id, err)
 		}
 	}
