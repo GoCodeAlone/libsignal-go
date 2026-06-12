@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/GoCodeAlone/libsignal-go/curve"
@@ -31,7 +32,7 @@ func TestSenderKeyDistributionMessageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Deserialize: %v", err)
 	}
-	if got.MessageVersion() != SenderKeyMessageCurrentVersion {
+	if got.MessageVersion() != SenderKeyCurrentVersion {
 		t.Fatalf("version = %d", got.MessageVersion())
 	}
 	if got.DistributionID() != testDistributionID() {
@@ -54,27 +55,27 @@ func TestSenderKeyDistributionMessageRoundTrip(t *testing.T) {
 func TestSenderKeyDistributionMessageRejectsBadInput(t *testing.T) {
 	if _, err := DeserializeSenderKeyDistributionMessage(make([]byte, 10)); err == nil {
 		t.Fatal("short message accepted")
-	} else if _, ok := err.(CiphertextMessageTooShortError); !ok {
-		t.Fatalf("short error = %T", err)
+	} else if !errors.Is(err, ErrCiphertextTooShort) {
+		t.Fatalf("short error = %v, want ErrCiphertextTooShort", err)
 	}
 
 	signKP, _ := curve.GenerateKeyPair(&fixedReader{b: 3})
 	msg, _ := NewSenderKeyDistributionMessage(testDistributionID(), 1, 1, repeatByte(0x01, chainKeyLen), signKP.PublicKey)
 
 	legacy := append([]byte(nil), msg.Serialized()...)
-	legacy[0] = (2 << 4) | SenderKeyMessageCurrentVersion
+	legacy[0] = (2 << 4) | SenderKeyCurrentVersion
 	if _, err := DeserializeSenderKeyDistributionMessage(legacy); err == nil {
 		t.Fatal("legacy accepted")
-	} else if _, ok := err.(LegacyCiphertextVersionError); !ok {
-		t.Fatalf("legacy error = %T", err)
+	} else if !errors.Is(err, ErrLegacyVersion) {
+		t.Fatalf("legacy error = %v, want ErrLegacyVersion", err)
 	}
 
 	future := append([]byte(nil), msg.Serialized()...)
-	future[0] = (5 << 4) | SenderKeyMessageCurrentVersion
+	future[0] = (5 << 4) | SenderKeyCurrentVersion
 	if _, err := DeserializeSenderKeyDistributionMessage(future); err == nil {
 		t.Fatal("future accepted")
-	} else if _, ok := err.(UnrecognizedCiphertextVersionError); !ok {
-		t.Fatalf("future error = %T", err)
+	} else if !errors.Is(err, ErrUnrecognizedVersion) {
+		t.Fatalf("future error = %v, want ErrUnrecognizedVersion", err)
 	}
 }
 

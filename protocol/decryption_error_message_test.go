@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/GoCodeAlone/libsignal-go/curve"
@@ -52,8 +53,8 @@ func TestDecryptionErrorMessageRejectsMissingTimestamp(t *testing.T) {
 	// An empty protobuf has no timestamp field -> required-field error.
 	if _, err := DeserializeDecryptionErrorMessage([]byte{}); err == nil {
 		t.Fatal("empty message accepted")
-	} else if err != ErrInvalidProtobufEncoding {
-		t.Fatalf("error = %v, want ErrInvalidProtobufEncoding", err)
+	} else if !errors.Is(err, ErrInvalidProtobuf) {
+		t.Fatalf("error = %v, want ErrInvalidProtobuf", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/GoCodeAlone/libsignal-go/curve"
@@ -14,6 +15,23 @@ const senderKeySignatureLen = 64
 
 // uuidLen is the length of the raw distribution UUID.
 const uuidLen = 16
+
+// senderKeyVersion extracts and validates the version from a SenderKey-family
+// message's leading byte. Unlike the 1:1 message family (which accepts
+// [PreKyberVersion, CurrentVersion]), the sender-key family versions
+// independently and accepts only exactly SenderKeyCurrentVersion, matching the
+// strict checks in protocol.rs SenderKeyMessage/SenderKeyDistributionMessage
+// TryFrom (so a v4-tagged sender-key message is rejected as unrecognized).
+func senderKeyVersion(b byte) (uint8, error) {
+	v := b >> 4
+	if v < SenderKeyCurrentVersion {
+		return 0, fmt.Errorf("%w: %d", ErrLegacyVersion, v)
+	}
+	if v > SenderKeyCurrentVersion {
+		return 0, fmt.Errorf("%w: %d", ErrUnrecognizedVersion, v)
+	}
+	return v, nil
+}
 
 // SenderKeyMessage is a group (sender-key) ciphertext message. Its wire form is
 // a version byte, the protobuf body, and a trailing 64-byte XEdDSA signature
@@ -50,7 +68,7 @@ func NewSenderKeyMessage(
 	}
 
 	serialized := make([]byte, 0, 1+len(body)+senderKeySignatureLen)
-	serialized = append(serialized, versionByte(SenderKeyMessageCurrentVersion, SenderKeyMessageCurrentVersion))
+	serialized = append(serialized, encodeVersionByte(SenderKeyCurrentVersion, SenderKeyCurrentVersion))
 	serialized = append(serialized, body...)
 
 	signature, err := signatureKey.CalculateSignature(rng, serialized)
@@ -60,7 +78,7 @@ func NewSenderKeyMessage(
 	serialized = append(serialized, signature...)
 
 	return &SenderKeyMessage{
-		messageVersion: SenderKeyMessageCurrentVersion,
+		messageVersion: SenderKeyCurrentVersion,
 		distributionID: distributionID,
 		chainID:        chainID,
 		iteration:      iteration,
@@ -74,28 +92,25 @@ func NewSenderKeyMessage(
 // call VerifySignature for that.
 func DeserializeSenderKeyMessage(value []byte) (*SenderKeyMessage, error) {
 	if len(value) < 1+senderKeySignatureLen {
-		return nil, CiphertextMessageTooShortError{Length: len(value)}
+		return nil, fmt.Errorf("%w: %d bytes", ErrCiphertextTooShort, len(value))
 	}
-	version := messageVersion(value[0])
-	if version < SenderKeyMessageCurrentVersion {
-		return nil, LegacyCiphertextVersionError{Version: version}
-	}
-	if version > SenderKeyMessageCurrentVersion {
-		return nil, UnrecognizedCiphertextVersionError{Version: version}
+	version, err := senderKeyVersion(value[0])
+	if err != nil {
+		return nil, err
 	}
 
 	body := value[1 : len(value)-senderKeySignatureLen]
 	var protoMessage proto.SenderKeyMessage
 	if err := googleproto.Unmarshal(body, &protoMessage); err != nil {
-		return nil, ErrInvalidProtobufEncoding
+		return nil, ErrInvalidProtobuf
 	}
 
 	rawUUID := protoMessage.GetDistributionUuid()
 	if len(rawUUID) != uuidLen {
-		return nil, ErrInvalidProtobufEncoding
+		return nil, ErrInvalidProtobuf
 	}
 	if protoMessage.ChainId == nil || protoMessage.Iteration == nil || protoMessage.Ciphertext == nil {
-		return nil, ErrInvalidProtobufEncoding
+		return nil, ErrInvalidProtobuf
 	}
 
 	var distributionID [uuidLen]byte

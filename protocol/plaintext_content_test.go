@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/GoCodeAlone/libsignal-go/curve"
@@ -45,15 +46,15 @@ func TestPlaintextContentFromDecryptionError(t *testing.T) {
 func TestPlaintextContentRejectsBadInput(t *testing.T) {
 	if _, err := DeserializePlaintextContent(nil); err == nil {
 		t.Fatal("empty accepted")
-	} else if _, ok := err.(CiphertextMessageTooShortError); !ok {
-		t.Fatalf("empty error = %T", err)
+	} else if !errors.Is(err, ErrCiphertextTooShort) {
+		t.Fatalf("empty error = %v, want ErrCiphertextTooShort", err)
 	}
 
 	// Wrong identifier byte.
 	if _, err := DeserializePlaintextContent([]byte{0x05, 0x01, 0x02}); err == nil {
 		t.Fatal("wrong identifier accepted")
-	} else if _, ok := err.(UnrecognizedMessageVersionError); !ok {
-		t.Fatalf("wrong identifier error = %T", err)
+	} else if !errors.Is(err, ErrUnrecognizedVersion) {
+		t.Fatalf("wrong identifier error = %v, want ErrUnrecognizedVersion", err)
 	}
 }
 

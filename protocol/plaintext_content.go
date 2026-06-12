@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"fmt"
+
 	"github.com/GoCodeAlone/libsignal-go/proto"
 	googleproto "google.golang.org/protobuf/proto"
 )
@@ -46,10 +48,10 @@ func NewPlaintextContentFromDecryptionError(message *DecryptionErrorMessage) (*P
 // which stores the serialized form and exposes the body via Body).
 func DeserializePlaintextContent(value []byte) (*PlaintextContent, error) {
 	if len(value) == 0 {
-		return nil, CiphertextMessageTooShortError{Length: 0}
+		return nil, fmt.Errorf("%w: empty plaintext content", ErrCiphertextTooShort)
 	}
 	if value[0] != plaintextContentIdentifierByte {
-		return nil, UnrecognizedMessageVersionError{Version: uint32(value[0])}
+		return nil, fmt.Errorf("%w: bad plaintext identifier byte 0x%02x", ErrUnrecognizedVersion, value[0])
 	}
 	serialized := make([]byte, len(value))
 	copy(serialized, value)

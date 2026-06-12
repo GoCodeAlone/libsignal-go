@@ -47,10 +47,10 @@ func NewDecryptionErrorMessage(
 func DeserializeDecryptionErrorMessage(value []byte) (*DecryptionErrorMessage, error) {
 	var protoMessage proto.DecryptionErrorMessage
 	if err := googleproto.Unmarshal(value, &protoMessage); err != nil {
-		return nil, ErrInvalidProtobufEncoding
+		return nil, ErrInvalidProtobuf
 	}
 	if protoMessage.Timestamp == nil {
-		return nil, ErrInvalidProtobufEncoding
+		return nil, ErrInvalidProtobuf
 	}
 
 	var ratchetKey *curve.PublicKey

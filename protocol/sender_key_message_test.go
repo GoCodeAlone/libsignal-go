@@ -3,22 +3,14 @@ package protocol
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/GoCodeAlone/libsignal-go/curve"
 )
 
-// fixedReader yields deterministic bytes, for reproducible key generation and
-// signature nonces in tests.
-type fixedReader struct{ b byte }
-
-func (r *fixedReader) Read(p []byte) (int, error) {
-	for i := range p {
-		p[i] = r.b
-		r.b++
-	}
-	return len(p), nil
-}
+// fixedReader (deterministic byte source) and fixedKeyPair are defined in
+// signal_message_test.go (same package) and reused here.
 
 func testDistributionID() [uuidLen]byte {
 	return [uuidLen]byte{
@@ -41,8 +33,8 @@ func TestSenderKeyMessageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Deserialize: %v", err)
 	}
-	if got.MessageVersion() != SenderKeyMessageCurrentVersion {
-		t.Fatalf("version = %d, want %d", got.MessageVersion(), SenderKeyMessageCurrentVersion)
+	if got.MessageVersion() != SenderKeyCurrentVersion {
+		t.Fatalf("version = %d, want %d", got.MessageVersion(), SenderKeyCurrentVersion)
 	}
 	if got.DistributionID() != testDistributionID() {
 		t.Fatalf("distribution id = %x", got.DistributionID())
@@ -105,8 +97,8 @@ func TestSenderKeyMessageRejectsBadInput(t *testing.T) {
 	// Too short (< 1 + 64).
 	if _, err := DeserializeSenderKeyMessage(make([]byte, 10)); err == nil {
 		t.Fatal("short message accepted")
-	} else if _, ok := err.(CiphertextMessageTooShortError); !ok {
-		t.Fatalf("short message error = %T, want CiphertextMessageTooShortError", err)
+	} else if !errors.Is(err, ErrCiphertextTooShort) {
+		t.Fatalf("short message error = %v, want ErrCiphertextTooShort", err)
 	}
 
 	signKP, _ := curve.GenerateKeyPair(&fixedReader{b: 1})
@@ -114,20 +106,20 @@ func TestSenderKeyMessageRejectsBadInput(t *testing.T) {
 
 	// Legacy version (< current): set high nibble to 2.
 	legacy := append([]byte(nil), msg.Serialized()...)
-	legacy[0] = (2 << 4) | SenderKeyMessageCurrentVersion
+	legacy[0] = (2 << 4) | SenderKeyCurrentVersion
 	if _, err := DeserializeSenderKeyMessage(legacy); err == nil {
 		t.Fatal("legacy version accepted")
-	} else if _, ok := err.(LegacyCiphertextVersionError); !ok {
-		t.Fatalf("legacy error = %T, want LegacyCiphertextVersionError", err)
+	} else if !errors.Is(err, ErrLegacyVersion) {
+		t.Fatalf("legacy error = %v, want ErrLegacyVersion", err)
 	}
 
 	// Unrecognized version (> current): set high nibble to 5.
 	future := append([]byte(nil), msg.Serialized()...)
-	future[0] = (5 << 4) | SenderKeyMessageCurrentVersion
+	future[0] = (5 << 4) | SenderKeyCurrentVersion
 	if _, err := DeserializeSenderKeyMessage(future); err == nil {
 		t.Fatal("future version accepted")
-	} else if _, ok := err.(UnrecognizedCiphertextVersionError); !ok {
-		t.Fatalf("future error = %T, want UnrecognizedCiphertextVersionError", err)
+	} else if !errors.Is(err, ErrUnrecognizedVersion) {
+		t.Fatalf("future error = %v, want ErrUnrecognizedVersion", err)
 	}
 
 	// Corrupt protobuf body (keep length >= 1+64 but garble the body).

@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"fmt"
+
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/proto"
 	googleproto "google.golang.org/protobuf/proto"
@@ -48,11 +50,11 @@ func NewSenderKeyDistributionMessage(
 	}
 
 	serialized := make([]byte, 0, 1+len(body))
-	serialized = append(serialized, versionByte(SenderKeyMessageCurrentVersion, SenderKeyMessageCurrentVersion))
+	serialized = append(serialized, encodeVersionByte(SenderKeyCurrentVersion, SenderKeyCurrentVersion))
 	serialized = append(serialized, body...)
 
 	return &SenderKeyDistributionMessage{
-		messageVersion: SenderKeyMessageCurrentVersion,
+		messageVersion: SenderKeyCurrentVersion,
 		distributionID: distributionID,
 		chainID:        chainID,
 		iteration:      iteration,
@@ -67,34 +69,31 @@ func NewSenderKeyDistributionMessage(
 func DeserializeSenderKeyDistributionMessage(value []byte) (*SenderKeyDistributionMessage, error) {
 	// The message contains at least a X25519 key and a chain key.
 	if len(value) < 1+chainKeyLen+chainKeyLen {
-		return nil, CiphertextMessageTooShortError{Length: len(value)}
+		return nil, fmt.Errorf("%w: %d bytes", ErrCiphertextTooShort, len(value))
 	}
-	version := messageVersion(value[0])
-	if version < SenderKeyMessageCurrentVersion {
-		return nil, LegacyCiphertextVersionError{Version: version}
-	}
-	if version > SenderKeyMessageCurrentVersion {
-		return nil, UnrecognizedCiphertextVersionError{Version: version}
+	version, err := senderKeyVersion(value[0])
+	if err != nil {
+		return nil, err
 	}
 
 	var protoMessage proto.SenderKeyDistributionMessage
 	if err := googleproto.Unmarshal(value[1:], &protoMessage); err != nil {
-		return nil, ErrInvalidProtobufEncoding
+		return nil, ErrInvalidProtobuf
 	}
 
 	rawUUID := protoMessage.GetDistributionUuid()
 	if len(rawUUID) != uuidLen {
-		return nil, ErrInvalidProtobufEncoding
+		return nil, ErrInvalidProtobuf
 	}
 	if protoMessage.ChainId == nil || protoMessage.Iteration == nil ||
 		protoMessage.ChainKey == nil || protoMessage.SigningKey == nil {
-		return nil, ErrInvalidProtobufEncoding
+		return nil, ErrInvalidProtobuf
 	}
 
 	chainKey := protoMessage.GetChainKey()
 	signingKeyBytes := protoMessage.GetSigningKey()
 	if len(chainKey) != chainKeyLen || len(signingKeyBytes) != serializedPublicKeyLen {
-		return nil, ErrInvalidProtobufEncoding
+		return nil, ErrInvalidProtobuf
 	}
 	signingKey, err := curve.DeserializePublicKey(signingKeyBytes)
 	if err != nil {
