@@ -76,3 +76,19 @@ linters:
       - path: session/cipher_test\.go
         linters:
           - gosec
+      # internal/mlkem768incr is a from-scratch FIPS-203 ML-KEM-768 port (ADR
+      # 0003) modeled on Go stdlib's crypto/internal/fips140/mlkem. Two linters
+      # fire on the unmodified FIPS-203 algorithms and are false positives here:
+      #   - errcheck: SHA-3 / SHAKE Write/Read/Sum on an in-memory hash never
+      #     return a non-nil error (same as protocol/ and internal/crypto/kdf.go,
+      #     which call mac.Write unchecked); the stdlib source we mirror ignores
+      #     them identically.
+      #   - gosec G115/G602: the field-arithmetic integer conversions are all
+      #     provably bounded by q=3329 / the 12-bit coefficient packing, and the
+      #     fixed-size slice indexing follows sliceForAppend, which guarantees the
+      #     length. These mirror the stdlib FIPS-203 code verbatim and are
+      #     covered byte-for-byte by the stdlib + ACVP oracles.
+      - path: internal/mlkem768incr/
+        linters:
+          - errcheck
+          - gosec
