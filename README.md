@@ -19,21 +19,23 @@ enforced by cross-implementation compatibility checks as required CI gates
 The protocol is being implemented in phases. Each phase is one or more pull
 requests; compatibility is asserted incrementally as domains land.
 
+This table tracks what has merged to the default branch.
+
 | Phase | Scope | Status |
 |-------|-------|--------|
 | P1 | Scaffold: Go module, CI, repository cleanup | ✅ |
-| P2 | Crypto primitives, curve (X25519 / XEdDSA), address types | 🚧 |
-| P3 | KEM (Kyber1024), protobuf codegen, wire messages | 🚧 |
-| P4 | Compatibility harness: committed vectors + live Rust interop | 🚧 |
-| P5 | Ratchet keys, session state, stores | 🚧 |
-| P6 | PQXDH session builder + session cipher | 🚧 |
-| P7 | Groups: sender keys + group cipher | 🚧 |
-| P8 | Sealed sender v1/v2 + AES-256-GCM-SIV | 🚧 |
-| P9 | Fingerprints + API polish + scope matrix | 🚧 |
+| P2 | Crypto primitives, curve (X25519 / XEdDSA), address types | ✅ |
+| P3 | KEM (Kyber1024), protobuf codegen, wire messages | ✅ |
+| P4 | Compatibility harness: committed vectors + live Rust interop | ✅ |
+| P5 | Ratchet keys, session state, stores | ✅ |
+| P6 | PQXDH session builder + session cipher | ✅ |
+| P7 | Groups: sender keys + group cipher | ✅ |
+| P8 | Sealed sender v1/v2 + AES-256-GCM-SIV | ✅ |
+| P9 | Fingerprints + API polish + scope matrix | 📦 this PR |
 | P10 | SPQR port + re-pin to mainline + full revalidation | 🚧 |
 | P11 | Cleanup: remove reference trees, final docs, `v0.1.0` | 🚧 |
 
-✅ landed · 🚧 planned / in progress
+✅ merged to main · 📦 this pull request · 🚧 planned
 
 ## Compatibility staging
 
