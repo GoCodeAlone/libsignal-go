@@ -42,6 +42,15 @@ linters:
       - path: groups/derivation_kat_test\.go
         linters:
           - gosec
+      # The SPQR state-codec tests read the committed issue1275_*.in fixtures from
+      # testdata/ by a fixed relative path (G304) — same controlled-fixture pattern
+      # as the KATs above; a false positive in a test.
+      - path: spqr/state_test\.go
+        linters:
+          - gosec
+      - path: spqr/fuzz_test\.go
+        linters:
+          - gosec
       # The session tests build proto fields from small, deterministic loop
       # counters; gosec G115 flags the int->uint32 / uint32->byte conversions as
       # overflow, but every value is provably bounded — false positive in a test.
