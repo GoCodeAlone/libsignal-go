@@ -127,11 +127,17 @@ deserializes a v3-version-byte `SignalMessage` and asserts it is accepted (with
 v2 below the floor and v5 above the ceiling rejected). That capability exists and
 is covered; it simply cannot be *cross-checked* against the v0.91.0 harness,
 because the harness's upstream cannot emit a v3 message.
-- **groups** — the full sender-key cipher is consumed both directions: Go
-  `Encrypt` from the recorded pre-encrypt sending record (replaying the recorded
-  signing nonce) must match the upstream `SenderKeyMessage` bytes, and Go
+- **groups** — `groups.json` carries two arrays. The `cases` array drives the
+  full sender-key cipher both directions: Go `Encrypt` from the recorded
+  pre-encrypt sending record (replaying the recorded signing nonce) must match
+  the upstream `SenderKeyMessage` bytes, and Go
   `ProcessSenderKeyDistributionMessage` + `Decrypt` of the upstream SKM recovers
-  the recorded plaintext.
+  the recorded plaintext. The `derivations` array is the byte-exact sender-key
+  primitive KAT — upstream chain-key ratchet (`HMAC(chain_key,[0x02])`) and
+  `senderMessageKey` iv/cipher_key (`HKDF(HMAC(chain_key,[0x01]), "WhisperGroup")`)
+  — consumed by `groups/derivation_kat_test.go` (a white-box test, since those
+  primitives are unexported), pinning the primitive independently of the cipher
+  wire framing, the same pattern `ratchet/` uses against `hkdf.json`.
 
 The live interop leg (`interop_test.go`, `-tags=interop`) additionally drives
 the group cipher both directions against the running harness: Go-distribute +

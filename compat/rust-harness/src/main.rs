@@ -149,6 +149,7 @@ const N_MESSAGES_SETS: u32 = 8;
 const N_FINGERPRINT_PAIRS: u32 = 8;
 const N_SESSIONS_NO_OPK: u32 = 24;
 const N_GROUPS_SETS: u32 = 8;
+const N_GROUPS_DERIVATIONS: u32 = 24;
 
 fn gen_vectors(domain: &str) -> Result<(), String> {
     // Every batch carries a {domain, seed} header. Most domains add a flat
@@ -179,7 +180,15 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
             obj.insert("cases".into(), Value::Array(gen_sessions()));
         }
         "groups" => {
+            // `cases` carries the end-to-end cipher golden bytes; `derivations`
+            // carries the byte-exact sender-key primitive KAT (chain-key ratchet
+            // + senderMessageKey iv/cipher_key), pinned independently of the
+            // cipher framing — the same pattern ratchet/ uses against hkdf.json.
             obj.insert("cases".into(), Value::Array(gen_groups()));
+            obj.insert(
+                "derivations".into(),
+                Value::Array(gen_sender_key_derivations()),
+            );
         }
         other => {
             return Err(format!(
@@ -1091,6 +1100,51 @@ fn session_decrypt(params: &Value) -> Result<Value, String> {
         .map_err(|e| e.to_string())?;
         Ok(json!({ "plaintext": hex(&plaintext) }))
     })
+}
+
+/// Byte-exact KAT for the sender-key primitives, reproduced from the v0.91.0
+/// source (sender_keys.rs SenderChainKey / SenderMessageKey, which are
+/// `pub(crate)`) against the same pinned `hmac`/`hkdf`/`sha2` crates — the same
+/// reproduction strategy the hkdf domain uses. For each random (iteration,
+/// chain_key):
+///
+///   next_chain_key   = HMAC-SHA256(chain_key, [0x02])          // SenderChainKey::next
+///   message_key_seed = HMAC-SHA256(chain_key, [0x01])          // sender_message_key
+///   HKDF-SHA256(ikm=message_key_seed, salt=None, info="WhisperGroup") -> 48B
+///       iv         = [0..16]
+///       cipher_key = [16..48]                                  // SenderMessageKey::new
+///
+/// The Go consumer asserts groups.SenderChainKey.next().Seed() and the derived
+/// senderMessageKey (iv/cipher_key) equal these bytes, pinning the primitive
+/// independently of the SenderKeyMessage wire framing.
+fn gen_sender_key_derivations() -> Vec<Value> {
+    use rand_core::RngCore;
+    let mut rng = seeded_rng();
+    let mut cases = Vec::new();
+
+    for i in 0..N_GROUPS_DERIVATIONS {
+        let mut chain_key = [0u8; 32];
+        rng.fill_bytes(&mut chain_key);
+        let iteration = i; // vary the recorded iteration across cases
+
+        let next_chain_key = hmac_sha256(&chain_key, &[0x02u8]);
+        let message_key_seed = hmac_sha256(&chain_key, &[0x01u8]);
+        let mut okm = [0u8; 48];
+        Hkdf::<Sha256>::new(None, &message_key_seed)
+            .expand(b"WhisperGroup", &mut okm)
+            .expect("valid output length");
+
+        cases.push(json!({
+            "iteration": iteration,
+            "chain_key": hex(&chain_key),
+            "next_chain_key": hex(&next_chain_key),
+            "message_key_seed": hex(&message_key_seed),
+            "iv": hex(&okm[0..16]),
+            "cipher_key": hex(&okm[16..48]),
+        }));
+    }
+
+    cases
 }
 
 /// Reads the serialized SenderKeyRecord for (sender, distribution_id) out of the
