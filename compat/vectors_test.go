@@ -10,9 +10,6 @@ package compat
 
 import (
 	"bytes"
-	"crypto/hkdf"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -22,6 +19,7 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/kem"
 	"github.com/GoCodeAlone/libsignal-go/protocol"
+	"github.com/GoCodeAlone/libsignal-go/ratchet"
 )
 
 // loadVectors reads and JSON-decodes compat/vectors/<domain>.json into dst.
@@ -178,18 +176,12 @@ func TestKEMDecapsVectors(t *testing.T) {
 
 // --- hkdf ---
 //
-// The Double Ratchet key derivations are pub(crate) upstream; T14 (PR 5) will
-// add a Go ratchet/ package. Until then these derivations are reproduced here
-// against Go's stdlib crypto/{hkdf,hmac,sha256}, with formulas from
-// rust/protocol/src/ratchet/keys.rs. When T14 lands, move them into ratchet/
-// and these committed vectors become its contract.
-
-// chainKeyHMAC is ChainKey::calculate_base_material: HMAC-SHA256(chainKey, seed).
-func chainKeyHMAC(chainKey []byte, seed byte) []byte {
-	m := hmac.New(sha256.New, chainKey)
-	m.Write([]byte{seed})
-	return m.Sum(nil)
-}
+// These vectors are now consumed through the real ratchet/ package (T14): the
+// chain-key step, message-key derivation, root-key/DH ratchet step, and PQXDH
+// master-secret derivation are exercised via ratchet exports, not an inline
+// oracle. The ratchet package has its own KAT suite over the same vectors
+// (ratchet/keys_test.go); this cross-checks that the compat layer and the real
+// package agree on the committed upstream contract.
 
 func TestHKDFVectors(t *testing.T) {
 	var batch struct {
@@ -213,10 +205,15 @@ func TestHKDFVectors(t *testing.T) {
 				ChainKey    string `json:"chain_key"`
 			} `json:"root-key"`
 			PqxdhSecret []struct {
-				SecretInput string `json:"secret_input"`
-				RootKey     string `json:"root_key"`
-				ChainKey    string `json:"chain_key"`
-				PqrKey      string `json:"pqr_key"`
+				SecretInput       string `json:"secret_input"`
+				DH1               string `json:"dh1"`
+				DH2               string `json:"dh2"`
+				DH3               string `json:"dh3"`
+				DH4               string `json:"dh4"`
+				KyberSharedSecret string `json:"kyber_shared_secret"`
+				RootKey           string `json:"root_key"`
+				ChainKey          string `json:"chain_key"`
+				PqrKey            string `json:"pqr_key"`
 			} `json:"pqxdh-secret"`
 		} `json:"subdomains"`
 	}
@@ -224,41 +221,47 @@ func TestHKDFVectors(t *testing.T) {
 
 	const minCases = 20
 
-	// chain-key: next = HMAC-SHA256(chain_key, 0x02).
+	// chain-key: ratchet.ChainKey.Next() == upstream next chain key.
 	if len(batch.Subdomains.ChainKey) < minCases {
 		t.Fatalf("chain-key: %d cases, want >= %d", len(batch.Subdomains.ChainKey), minCases)
 	}
 	for i, c := range batch.Subdomains.ChainKey {
-		got := chainKeyHMAC(mustHex(t, c.ChainKey), 0x02)
-		if !bytes.Equal(got, mustHex(t, c.NextChainKey)) {
-			t.Fatalf("chain-key case %d: mismatch\n go   %x\n want %s", i, got, c.NextChainKey)
+		ck, err := ratchet.NewChainKey(mustHex(t, c.ChainKey), 0)
+		if err != nil {
+			t.Fatalf("chain-key case %d: NewChainKey: %v", i, err)
+		}
+		if !bytes.Equal(ck.Next().Key(), mustHex(t, c.NextChainKey)) {
+			t.Fatalf("chain-key case %d: next chain key mismatch", i)
 		}
 	}
 
-	// message-keys: HKDF-SHA256(ikm=HMAC-SHA256(chain_key,0x01), salt=nil,
-	// info="WhisperMessageKeys") -> 32B cipher || 32B mac || 16B iv.
+	// message-keys: ratchet.ChainKey.MessageKeys() == upstream cipher/mac/iv.
 	if len(batch.Subdomains.MessageKeys) < minCases {
 		t.Fatalf("message-keys: %d cases, want >= %d", len(batch.Subdomains.MessageKeys), minCases)
 	}
 	for i, c := range batch.Subdomains.MessageKeys {
-		ikm := chainKeyHMAC(mustHex(t, c.ChainKey), 0x01)
-		okm, err := hkdf.Key(sha256.New, ikm, nil, "WhisperMessageKeys", 80)
+		ck, err := ratchet.NewChainKey(mustHex(t, c.ChainKey), 0)
 		if err != nil {
-			t.Fatalf("message-keys case %d: hkdf: %v", i, err)
+			t.Fatalf("message-keys case %d: NewChainKey: %v", i, err)
 		}
-		if !bytes.Equal(okm[0:32], mustHex(t, c.CipherKey)) {
+		mk, err := ck.MessageKeys()
+		if err != nil {
+			t.Fatalf("message-keys case %d: MessageKeys: %v", i, err)
+		}
+		if !bytes.Equal(mk.CipherKey(), mustHex(t, c.CipherKey)) {
 			t.Fatalf("message-keys case %d: cipher_key mismatch", i)
 		}
-		if !bytes.Equal(okm[32:64], mustHex(t, c.MacKey)) {
+		if !bytes.Equal(mk.MACKey(), mustHex(t, c.MacKey)) {
 			t.Fatalf("message-keys case %d: mac_key mismatch", i)
 		}
-		if !bytes.Equal(okm[64:80], mustHex(t, c.IV)) {
+		if !bytes.Equal(mk.IV(), mustHex(t, c.IV)) {
 			t.Fatalf("message-keys case %d: iv mismatch", i)
 		}
 	}
 
-	// root-key: shared=ECDH(our_private, their_public); HKDF-SHA256(ikm=shared,
-	// salt=root_key, info="WhisperRatchet") -> 32B next_root || 32B chain.
+	// root-key: ratchet.RootKey.CreateChain(their, our) == upstream next root +
+	// chain (CreateChain recomputes the ECDH internally; we also confirm the
+	// independent Go agreement matches the recorded dh_output).
 	if len(batch.Subdomains.RootKey) < minCases {
 		t.Fatalf("root-key: %d cases, want >= %d", len(batch.Subdomains.RootKey), minCases)
 	}
@@ -278,43 +281,51 @@ func TestHKDFVectors(t *testing.T) {
 		if !bytes.Equal(shared, mustHex(t, c.DHOutput)) {
 			t.Fatalf("root-key case %d: DH output mismatch", i)
 		}
-		okm, err := hkdf.Key(sha256.New, shared, mustHex(t, c.RootKey), "WhisperRatchet", 64)
+		rk, err := ratchet.NewRootKey(mustHex(t, c.RootKey))
 		if err != nil {
-			t.Fatalf("root-key case %d: hkdf: %v", i, err)
+			t.Fatalf("root-key case %d: NewRootKey: %v", i, err)
 		}
-		if !bytes.Equal(okm[0:32], mustHex(t, c.NextRootKey)) {
+		nextRoot, chain, err := rk.CreateChain(theirPub, ourPriv)
+		if err != nil {
+			t.Fatalf("root-key case %d: CreateChain: %v", i, err)
+		}
+		if !bytes.Equal(nextRoot.Key(), mustHex(t, c.NextRootKey)) {
 			t.Fatalf("root-key case %d: next_root_key mismatch", i)
 		}
-		if !bytes.Equal(okm[32:64], mustHex(t, c.ChainKey)) {
+		if !bytes.Equal(chain.Key(), mustHex(t, c.ChainKey)) {
 			t.Fatalf("root-key case %d: chain_key mismatch", i)
 		}
 	}
 
-	// pqxdh-secret: the secret_input (0xFF*32 || DH1..4 || kyber_ss) is assembled
-	// by the harness; here we confirm the KDF over it. HKDF-SHA256(ikm=secret,
-	// salt=nil, info=<X25519/Kyber label>) -> 32B root || 32B chain || 32B pqr.
+	// pqxdh-secret: re-derive the master secret in Go from the recorded
+	// dh1..dh4 + kyber_shared_secret (carry-forward from T12 review — do NOT
+	// consume the pre-assembled blob), confirm it equals secret_input, then
+	// ratchet.DeriveInitialKeys reproduces root/chain/pqr.
 	if len(batch.Subdomains.PqxdhSecret) < minCases {
 		t.Fatalf("pqxdh-secret: %d cases, want >= %d", len(batch.Subdomains.PqxdhSecret), minCases)
 	}
-	const pqxdhLabel = "WhisperText_X25519_SHA-256_CRYSTALS-KYBER-1024"
 	for i, c := range batch.Subdomains.PqxdhSecret {
-		secret := mustHex(t, c.SecretInput)
-		okm, err := hkdf.Key(sha256.New, secret, nil, pqxdhLabel, 96)
-		if err != nil {
-			t.Fatalf("pqxdh-secret case %d: hkdf: %v", i, err)
+		dh1, dh2, dh3, dh4 := mustHex(t, c.DH1), mustHex(t, c.DH2), mustHex(t, c.DH3), mustHex(t, c.DH4)
+		kyberSS := mustHex(t, c.KyberSharedSecret)
+		if !bytes.Equal(ratchet.PQXDHSecret(dh1, dh2, dh3, dh4, kyberSS), mustHex(t, c.SecretInput)) {
+			t.Fatalf("pqxdh-secret case %d: re-derived secret_input mismatch", i)
 		}
-		if !bytes.Equal(okm[0:32], mustHex(t, c.RootKey)) {
+		ik, err := ratchet.DeriveInitialKeys(dh1, dh2, dh3, dh4, kyberSS)
+		if err != nil {
+			t.Fatalf("pqxdh-secret case %d: DeriveInitialKeys: %v", i, err)
+		}
+		if !bytes.Equal(ik.RootKey.Key(), mustHex(t, c.RootKey)) {
 			t.Fatalf("pqxdh-secret case %d: root_key mismatch", i)
 		}
-		if !bytes.Equal(okm[32:64], mustHex(t, c.ChainKey)) {
+		if !bytes.Equal(ik.ChainKey.Key(), mustHex(t, c.ChainKey)) {
 			t.Fatalf("pqxdh-secret case %d: chain_key mismatch", i)
 		}
-		if !bytes.Equal(okm[64:96], mustHex(t, c.PqrKey)) {
+		if !bytes.Equal(ik.PQRSeed[:], mustHex(t, c.PqrKey)) {
 			t.Fatalf("pqxdh-secret case %d: pqr_key mismatch", i)
 		}
 	}
 
-	t.Logf("hkdf: chain-key %d, message-keys %d, root-key %d, pqxdh-secret %d cases == upstream",
+	t.Logf("hkdf (via ratchet/): chain-key %d, message-keys %d, root-key %d, pqxdh-secret %d cases == upstream",
 		len(batch.Subdomains.ChainKey), len(batch.Subdomains.MessageKeys),
 		len(batch.Subdomains.RootKey), len(batch.Subdomains.PqxdhSecret))
 }

@@ -30,3 +30,23 @@ linters:
       - path: compat/vectors_test\.go
         linters:
           - gosec
+      # The ratchet KAT test reads the committed compat/vectors/hkdf.json fixture
+      # by a fixed relative path (G304) — same controlled-fixture pattern as the
+      # compat consumer above; a false positive in a test.
+      - path: ratchet/keys_test\.go
+        linters:
+          - gosec
+      # The session tests build proto fields from small, deterministic loop
+      # counters; gosec G115 flags the int->uint32 / uint32->byte conversions as
+      # overflow, but every value is provably bounded — false positive in a test.
+      - path: session/record_test\.go
+        linters:
+          - gosec
+      # SessionState / SessionRecord are named to match the task spec and the
+      # upstream libsignal types (SessionState, SessionRecord). The session.
+      # prefix "stutter" is intentional and worth the parity; suppress revive's
+      # stutter warning for these two exported types.
+      - path: session/
+        text: 'stutters; consider calling this (Record|State)'
+        linters:
+          - revive
