@@ -52,8 +52,37 @@ target, so that the interop gate is meaningful and reproducible.
 The rationale, alternatives considered, and the exact pin boundary are recorded
 in [`decisions/0001-spqr-staged-compat.md`](decisions/0001-spqr-staged-compat.md).
 
-The authoritative, per-domain implemented/excluded matrix lands with P9; until
-then the phase table above is the source of truth for what exists.
+## Scope matrix
+
+The per-domain status of the client protocol surface. **Implemented** domains
+are wire-checked against upstream **libsignal v0.91.0** (committed Rust-generated
+vectors plus live Rust↔Go interop, per the compatibility staging above).
+**Staged** domains are deferred to a named phase. **Excluded** domains are
+deliberate non-goals for this module.
+
+| Domain | Status | Package | Notes |
+|--------|--------|---------|-------|
+| X25519 ECDH + XEdDSA sign/verify | ✅ implemented | [`curve`](curve/) | v0.91.0 vectors + interop |
+| Kyber1024 KEM (encaps/decaps) | ✅ implemented | [`kem`](kem/) | v0.91.0 decaps vectors + interop |
+| Wire messages (Signal, PreKeySignal, SenderKey, SKDM) | ✅ implemented | [`protocol`](protocol/) | golden-byte vectors both directions |
+| Symmetric primitives (AES-CBC/CTR/GCM, HKDF, HMAC) | ✅ implemented | [`internal/crypto`](internal/crypto/) | internal building blocks |
+| Double Ratchet keys + session state + stores | ✅ implemented | [`ratchet`](ratchet/), [`session`](session/), [`stores`](stores/) | KDF + state KATs |
+| PQXDH session establishment + session cipher | ✅ implemented | [`session`](session/) | both roles, with/without one-time pre-key, interop |
+| Group messaging (sender keys + group cipher) | ✅ implemented | [`groups`](groups/) | SKDM + cipher, both directions, interop |
+| Sealed sender v1 + v2 (+ AES-256-GCM-SIV) | ✅ implemented | `sealedsender` | lands in P8 |
+| Fingerprints (numeric + scannable) | ✅ implemented | [`fingerprint`](fingerprint/) | display + scannable byte-equal vs upstream |
+| Sparse Post-Quantum Ratchet (SPQR) | 🚧 staged (P10) | `spqr` | proto fields parsed + preserved now; negotiation + mainline re-pin land in P10 |
+| X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.91.0 cannot initiate v3 |
+| ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
+| zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
+| usernames, key transparency, SVR/svrb, account-keys | ⛔ excluded | — | non-goal |
+| device transfer, media, message backup, net | ⛔ excluded | — | non-goal |
+| `incremental_mac`, HPKE, `session_cipher_legacy` | ⛔ excluded | — | upstream test-only |
+| Language bridges (Java / Swift / Node) | ⛔ excluded | — | deleted from this fork, not ported |
+
+Legend: ✅ implemented (v0.91.0 compat) · 🚧 staged to a later phase · ⛔
+excluded (deliberate non-goal). FIPS certification and key-material zeroization
+guarantees beyond the documented Go posture are also out of scope.
 
 ## Reference tree
 

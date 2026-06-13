@@ -52,17 +52,17 @@ X3DH v3 session *initiation* (dead upstream; v3 decrypt/state compat retained).
 
 Upstream HEAD requires SPQR for all new sessions (D1). Staged plan:
 
-- **Stage 1 (P4-P9):** compat harness pinned to upstream tag `T0 = v0.91.1` —
+- **Stage 1 (P4-P9):** compat harness pinned to upstream tag `T0 = v0.91.0` —
   last release before `cf9a7445c` "Force SPQR v1" (2026-04-03) flipped
   `min_version` V0→V1; SPQR-optional window ran from integration commit
   `b7b8040e3` (2025-06-04). No bisect needed (review cycle 2, D10). Upstream's
   own `rust/protocol/cross-version-testing/` proves the consumption pattern:
   cargo git-dep on a workspace member by tag
-  (`libsignal-protocol-v91 = { git = "https://github.com/signalapp/libsignal", tag = "v0.91.1", package = "libsignal-protocol" }`
+  (`libsignal-protocol-v91 = { git = "https://github.com/signalapp/libsignal", tag = "v0.91.0", package = "libsignal-protocol" }`
   + local `[workspace] members = ["."]` stanza) — A2/A9 are near-facts, not
   assumptions. Note: this fork clone has no upstream tags; harness CI fetches
   tags from the signalapp remote. Compat claim = "compatible with libsignal
-  `v0.91.1` protocol surface". Go wire/storage protos carry
+  `v0.91.0` protocol surface". Go wire/storage protos carry
   `pq_ratchet`/`pq_ratchet_state` fields from day one (parse + preserve, not
   produce).
 - **Stage 2 (P10):** port SPQR v1.5.1 (separately versioned spec + Rust
@@ -161,7 +161,7 @@ gate.
 | P1 | scaffold: go.mod (1.26.4), CI (`go.yml`: build/test/lint, CGO_ENABLED=0, gofmt, golangci-lint); workflow retirement — exact: delete `android_integration.yml, ios_artifacts.yml, jni_artifacts.yml, npm.yml, build_and_test.yml, lints.yml, slow_tests.yml, check_versions.yml, docs.yml, release_notes.yml` (keep `stale.yml`); **same PR: audit + update branch-protection required checks via `gh api`** (D7); cruft purge round 1 (owner directive 2026-06-12): delete `java/ swift/ node/ bin/ acknowledgments/ doc/` + bridge/tooling dotfiles (`.cargo .cbindgen-version .clippy.toml .dockerignore .nvmrc .prettierrc.js .rustfmt.toml .swift-format .taplo* .flake8 .tool-versions LibSignalClient.podspec justfile RELEASE*.md TESTING.md CODING_GUIDELINES.md`); keep `rust/ Cargo.toml Cargo.lock rust-toolchain` as behavioral reference until P11; README rewrite (Go project identity, staged-compat status section); LICENSE retained (AGPL-3.0) | — |
 | P2 | internal/crypto (CBC/CTR/GCM/HKDF helpers) + curve (X25519, XEdDSA) + address: KATs (RFC + upstream-traced) | P1 |
 | P3 | kem (Kyber1024: circl wrap, key-format fixtures + NIST round-3 KATs) + proto codegen (wire/service/storage/sealed_sender/fingerprint .proto) + wire messages; tests = public KATs + structural round-trip only — upstream-generated vectors arrive in P4 (D12) | P2 |
-| P4 | compat rust-harness (pin tag T0=v0.91.1, cross-version-testing pattern) + vector generation incl. message serialization + KEM decaps triples (closes A1) + `compat-interop` CI job (required check from here on) + two-pin drift workflow | P3 |
+| P4 | compat rust-harness (pin tag T0=v0.91.0, cross-version-testing pattern) + vector generation incl. message serialization + KEM decaps triples (closes A1) + `compat-interop` CI job (required check from here on) + two-pin drift workflow | P3 |
 | P5 | ratchet + session state/record + stores | P3 |
 | P6 | session builder (PQXDH) + session cipher + interop transcripts (v3 decrypt-compat vectors included) | P4,P5 |
 | P7 | groups/sender keys + interop | P6 |
