@@ -331,3 +331,20 @@ Scope: no manifest change (T19 stays one task in PR6; only one verification
 sub-item's source changes — upstream-fixture → Go-unit-test). Matches design's
 "v3 = decrypt/state compat ONLY" scope row.
 Evidence: pqxdh.rs / ratchet.rs:98,161 / session.rs:107-115 / lib.rs:43 (cited).
+
+### Backport 2026-06-13: SPQR KEM = incremental ML-KEM-768 (pure-Go port; circl insufficient)
+
+Cause: design/plan assumed circl supplies SPQR's KEM ("ML-KEM-1024 via circl").
+False on both counts (verified vs SPQR v1.5.1 cargo f2589fe): SPQR uses ML-KEM-
+**768** via libcrux's **incremental** API (chunked encaps-key header/pk2 split,
+encapsulate1/2, decapsulate_compressed_key, custom encaps-state byte layout).
+circl v1.6.3 has only monolithic standard ML-KEM-768 — cannot produce/consume
+SPQR's state-blob bytes; cgo to libcrux is forbidden.
+Change: T27 ports incremental ML-KEM-768 to pure Go (fork circl mlkem768 +
+incremental/chunked layer + encaps-state codec, KAT'd vs the libcrux reference)
+as its first slice, ahead of the SPQR codec/state-machine slices. SPQR not
+deferred (owner ruling). Recorded in ADR 0002.
+Scope: owner-approved amendment; T27 content expands; PR count 11 / task count
+30 unchanged (T27 still ships in PR 10). See decisions/0002-incremental-mlkem768-pure-go.md.
+Evidence: SPQR Cargo.toml libcrux-ml-kem features incremental+mlkem768;
+src/incremental_mlkem768.rs; circl grep incremental→0 (implementer-2, lead-relayed).
