@@ -19,6 +19,7 @@ import (
 
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
+	"github.com/GoCodeAlone/libsignal-go/fingerprint"
 	"github.com/GoCodeAlone/libsignal-go/groups"
 	"github.com/GoCodeAlone/libsignal-go/kem"
 	"github.com/GoCodeAlone/libsignal-go/protocol"
@@ -611,29 +612,72 @@ func testSenderKeyDistributionMessageCase(t *testing.T, i int, c messageCase) {
 
 // --- fingerprint ---
 //
-// The Go fingerprint package does not exist yet (T25). Per the task, assert the
-// vector file parses with cases present, and leave a TODO(T25) consuming test.
+// Each upstream case records the (version, iterations, local/remote id + key)
+// inputs plus the golden display string and scannable protobuf bytes. The Go
+// fingerprint package recomputes both from the inputs and must match upstream
+// byte-for-byte; a generate->compare round-trip then confirms the scannable
+// compares equal against itself's mirror.
 
 func TestFingerprintVectors(t *testing.T) {
 	var batch struct {
 		Cases []struct {
-			Version   uint32 `json:"version"`
-			Display   string `json:"display"`
-			Scannable string `json:"scannable"`
+			Version    uint32 `json:"version"`
+			Iterations uint32 `json:"iterations"`
+			LocalID    string `json:"local_id"`
+			RemoteID   string `json:"remote_id"`
+			LocalKey   string `json:"local_key"`
+			RemoteKey  string `json:"remote_key"`
+			Display    string `json:"display"`
+			Scannable  string `json:"scannable"`
 		} `json:"cases"`
 	}
 	loadVectors(t, "fingerprint", &batch)
 	if len(batch.Cases) == 0 {
 		t.Fatal("fingerprint: no cases")
 	}
-	// TODO(T25): once a Go fingerprint package exists, recompute display +
-	// scannable from local/remote keys and assert equality with these vectors.
+
 	for i, c := range batch.Cases {
-		if c.Display == "" || len(mustHex(t, c.Scannable)) == 0 {
-			t.Fatalf("fingerprint case %d: empty display or scannable", i)
+		localKey, err := curve.DeserializePublicKey(mustHex(t, c.LocalKey))
+		if err != nil {
+			t.Fatalf("case %d: local key: %v", i, err)
+		}
+		remoteKey, err := curve.DeserializePublicKey(mustHex(t, c.RemoteKey))
+		if err != nil {
+			t.Fatalf("case %d: remote key: %v", i, err)
+		}
+
+		fp, err := fingerprint.New(c.Version, c.Iterations, []byte(c.LocalID), localKey, []byte(c.RemoteID), remoteKey)
+		if err != nil {
+			t.Fatalf("case %d: New: %v", i, err)
+		}
+
+		if got := fp.DisplayString(); got != c.Display {
+			t.Fatalf("case %d: display = %q, want %q", i, got, c.Display)
+		}
+		scannable, err := fp.Scannable.Serialize()
+		if err != nil {
+			t.Fatalf("case %d: serialize scannable: %v", i, err)
+		}
+		if want := mustHex(t, c.Scannable); !bytes.Equal(scannable, want) {
+			t.Fatalf("case %d: scannable\n go   %x\n want %x", i, scannable, want)
+		}
+
+		// Round-trip: the mirror-image fingerprint (local/remote swapped) must
+		// compare equal against this one's serialized form, exercising Compare.
+		mirror, err := fingerprint.New(c.Version, c.Iterations, []byte(c.RemoteID), remoteKey, []byte(c.LocalID), localKey)
+		if err != nil {
+			t.Fatalf("case %d: New(mirror): %v", i, err)
+		}
+		mirrorSer, err := mirror.Scannable.Serialize()
+		if err != nil {
+			t.Fatalf("case %d: serialize mirror: %v", i, err)
+		}
+		ok, err := fp.Scannable.Compare(mirrorSer)
+		if err != nil || !ok {
+			t.Fatalf("case %d: Compare(mirror) = %v, %v; want true, nil", i, ok, err)
 		}
 	}
-	t.Logf("fingerprint: %d cases parsed (TODO(T25) consuming test once Go fingerprint pkg exists)", len(batch.Cases))
+	t.Logf("fingerprint: %d cases consumed (display + scannable byte-equal vs upstream, plus mirror compare)", len(batch.Cases))
 }
 
 // --- sessions ---
