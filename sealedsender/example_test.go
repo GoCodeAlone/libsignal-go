@@ -17,11 +17,19 @@ import (
 // root.
 func Example_sealedSender() {
 	// Long-lived identities. In production these come from key stores; here they
-	// are generated for the example.
-	trustRoot, _ := curve.GenerateKeyPair(rand.Reader)
-	serverKey, _ := curve.GenerateKeyPair(rand.Reader)
-	senderIdentity, _ := curve.GenerateKeyPair(rand.Reader)
-	recipientIdentity, _ := curve.GenerateKeyPair(rand.Reader)
+	// are generated for the example. genKey panics on a key-generation error so
+	// the example handles every error rather than discarding it.
+	genKey := func() curve.KeyPair {
+		kp, err := curve.GenerateKeyPair(rand.Reader)
+		if err != nil {
+			panic(err)
+		}
+		return kp
+	}
+	trustRoot := genKey()
+	serverKey := genKey()
+	senderIdentity := genKey()
+	recipientIdentity := genKey()
 
 	// The server certificate is signed by the trust root; the sender certificate
 	// is signed by the server, binding the sender's identity + UUID + device.

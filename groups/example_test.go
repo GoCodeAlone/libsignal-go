@@ -17,7 +17,10 @@ func Example_groupMessaging() {
 	ctx := context.Background()
 
 	// The sender's address and a shared 16-byte distribution id for this group.
-	dev, _ := address.NewDeviceID(1)
+	dev, err := address.NewDeviceID(1)
+	if err != nil {
+		panic(err)
+	}
 	sender := address.NewProtocolAddress("+15551230001", dev)
 	var distributionID [16]byte
 	copy(distributionID[:], []byte("example-dist-001"))

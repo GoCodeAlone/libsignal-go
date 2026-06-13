@@ -22,19 +22,43 @@ import (
 // Alice's pending pre-key message) together with Bob's own pre-key private keys.
 func Example_sessionRoundTrip() {
 	ctx := context.Background()
-	dev, _ := address.NewDeviceID(1)
+
+	// Small helpers so the example handles every error rather than discarding it,
+	// while staying readable. In production these errors propagate normally.
+	genKey := func() curve.KeyPair {
+		kp, err := curve.GenerateKeyPair(rand.Reader)
+		if err != nil {
+			panic(err)
+		}
+		return kp
+	}
+	sign := func(signer curve.PrivateKey, msg []byte) []byte {
+		sig, err := signer.CalculateSignature(rand.Reader, msg)
+		if err != nil {
+			panic(err)
+		}
+		return sig
+	}
+
+	dev, err := address.NewDeviceID(1)
+	if err != nil {
+		panic(err)
+	}
 	aliceAddr := address.NewProtocolAddress("+15551230001", dev)
 	bobAddr := address.NewProtocolAddress("+15551230002", dev)
 
 	// --- Bob's long-lived + pre-key material ---
-	bobIdentity, _ := curve.GenerateKeyPair(rand.Reader)
-	bobSignedPre, _ := curve.GenerateKeyPair(rand.Reader)
-	bobOneTime, _ := curve.GenerateKeyPair(rand.Reader)
-	bobKyber, _ := kem.GenerateKeyPair(kem.KeyTypeKyber1024, rand.Reader)
+	bobIdentity := genKey()
+	bobSignedPre := genKey()
+	bobOneTime := genKey()
+	bobKyber, err := kem.GenerateKeyPair(kem.KeyTypeKyber1024, rand.Reader)
+	if err != nil {
+		panic(err)
+	}
 
 	// Bob signs his signed-pre-key and Kyber pre-key with his identity key.
-	signedSig, _ := bobIdentity.PrivateKey.CalculateSignature(rand.Reader, bobSignedPre.PublicKey.Serialize())
-	kyberSig, _ := bobIdentity.PrivateKey.CalculateSignature(rand.Reader, bobKyber.PublicKey.Serialize())
+	signedSig := sign(bobIdentity.PrivateKey, bobSignedPre.PublicKey.Serialize())
+	kyberSig := sign(bobIdentity.PrivateKey, bobKyber.PublicKey.Serialize())
 
 	oneTimeID := uint32(31)
 	oneTimePub := bobOneTime.PublicKey
@@ -56,7 +80,7 @@ func Example_sessionRoundTrip() {
 	}
 
 	// --- Alice establishes a session from Bob's bundle and encrypts ---
-	aliceIdentity, _ := curve.GenerateKeyPair(rand.Reader)
+	aliceIdentity := genKey()
 	aliceID := inmem.NewIdentityKeyStore(aliceIdentity, 1001)
 	aliceSess := inmem.NewSessionStore()
 
@@ -77,7 +101,10 @@ func Example_sessionRoundTrip() {
 
 	// --- Bob establishes his side from the handshake material and decrypts ---
 	// Recover Alice's base key + Kyber ciphertext from her pending pre-key state.
-	aliceRec, _ := aliceSess.LoadSession(ctx, bobAddr)
+	aliceRec, err := aliceSess.LoadSession(ctx, bobAddr)
+	if err != nil {
+		panic(err)
+	}
 	pending, ok := aliceRec.CurrentState().PendingPreKeyMessage()
 	if !ok {
 		panic("alice has no pending pre-key message")
