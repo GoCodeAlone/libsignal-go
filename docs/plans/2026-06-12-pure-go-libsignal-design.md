@@ -348,3 +348,21 @@ Scope: owner-approved amendment; T27 content expands; PR count 11 / task count
 30 unchanged (T27 still ships in PR 10). See decisions/0002-incremental-mlkem768-pure-go.md.
 Evidence: SPQR Cargo.toml libcrux-ml-kem features incremental+mlkem768;
 src/incremental_mlkem768.rs; circl grep incremental→0 (implementer-2, lead-relayed).
+
+### Backport 2026-06-13: SPQR KEM path resolved by spike — STANDALONE FIPS-203
+
+Cause: ADR 0002 preferred forking circl's mlkem768; the Slice-0 design spike
+disproved it. circl mlkem768 is ROUND-3 Kyber (wrong version — byte-incompatible
+with libcrux's FIPS-203-final); Go 1.26 stdlib `crypto/mlkem` IS FIPS-203-final
+ML-KEM-768 but its real internals (crypto/internal/fips140/mlkem) are
+import-locked (monolithic public API only). Neither is a usable BASE.
+Change: T27 Slice 0 = STANDALONE pure-Go ML-KEM-768 PKE (field/NTT/sampling/
+compress/serialize) modeled on stdlib's fips140/mlkem source (FIPS-203-correct,
+BSD — carry Go copyright attribution) + libcrux 0.0.8 incremental split layered
+on top. Dual-oracle acceptance: stdlib crypto/mlkem (end-to-end correctness) +
+a Rust KAT harness over libcrux 0.0.8 (byte-exact incremental vectors, incl.
+issue-1275 bad-encoding). This is the explicit fallback ADR 0002 named; owner's
+"write a chunked/incremental implementation" authorizes it. Slice 0 split into
+0a (PKE/KEM core) + 0b (incremental layer), each its own reviewed unit.
+Scope: within ADR 0002's approved amendment; manifest count/grouping unchanged.
+Evidence: spike (implementer-2) — ek=1184B(1152 t̂‖32 ρ), pk2==t̂(1152), hdr/pk1==ρ+hash(64); stdlib API exposes no matrix/NTT/PKE; circl internals are round-3.
