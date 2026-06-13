@@ -159,8 +159,10 @@ func SealV1(usmc *UnidentifiedSenderMessageContent, ourIdentity curve.KeyPair, t
 		return nil, fmt.Errorf("sealedsender: marshal v1 message: %w", err)
 	}
 
-	out := make([]byte, 0, 1+len(body))
-	out = append(out, sealedSenderV1FullVersion)
+	// Seed with the version byte and append the body. Avoids a pre-computed
+	// capacity (1+len(body)) — CodeQL's allocation-size-overflow flags that
+	// arithmetic; the capacity was only a hint, so the output is identical.
+	out := []byte{sealedSenderV1FullVersion}
 	out = append(out, body...)
 	return out, nil
 }
