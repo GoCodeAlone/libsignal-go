@@ -21,6 +21,7 @@ import (
 	"crypto/sha3"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 )
 
 // Standard ML-KEM-768 byte sizes (FIPS 203).
@@ -271,7 +272,19 @@ func pkeDecrypt(dx *decryptionKey, c *[CiphertextSize768]byte) []byte {
 }
 
 // String redacts the secret key material so a decapsulation key never leaks
-// into logs.
-func (dk *DecapsulationKey768) String() string {
+// into logs. Value receiver (matching curve.PrivateKey) so a value copy — not
+// just a pointer — also redacts under %v/%s.
+func (dk DecapsulationKey768) String() string {
 	return "mlkem768incr.DecapsulationKey768{[redacted]}"
+}
+
+// Format implements fmt.Formatter, redacting the secret key material under every
+// verb. Without this, %#v dumps the seed (d), implicit-rejection secret (z), and
+// secret vector ŝ as a raw struct, and %x dumps their bytes. Value receiver so a
+// value copy redacts too. The embedded encryptionKey is public (t̂/Â) but is
+// redacted along with the rest for a single uniform secret-key rendering; use
+// EncapsulationKey() to print the public key. (FIPS-203 secret-leak convention;
+// see curve.PrivateKey.Format.)
+func (dk DecapsulationKey768) Format(f fmt.State, _ rune) {
+	_, _ = fmt.Fprint(f, "mlkem768incr.DecapsulationKey768{[redacted]}")
 }
