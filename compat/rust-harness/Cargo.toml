@@ -26,6 +26,10 @@ libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0
 rand = "0.9"
 rand_chacha = "0.9"
 rand_core = "0.9"
+# The upstream session API is async; the in-memory stores never actually pend,
+# so the harness drives the futures synchronously via FutureExt::now_or_never —
+# the same idiom upstream's own test support module uses.
+futures-util = "0.3"
 # Crypto primitives for the hkdf domain: the chain/root/message-key and
 # pqxdh-secret derivations are pub(crate) upstream, so the harness reproduces
 # them against the same crate versions, matching the v0.91.0 source exactly.

@@ -631,3 +631,76 @@ func TestFingerprintVectors(t *testing.T) {
 	}
 	t.Logf("fingerprint: %d cases parsed (TODO(T25) consuming test once Go fingerprint pkg exists)", len(batch.Cases))
 }
+
+// --- sessions ---
+//
+// The sessions domain carries PQXDH master-secret KATs for the NO-one-time-
+// prekey case (DH4 absent), the path the committed hkdf.json pqxdh-secret
+// sub-domain does not cover. Each case omits the fourth agreement, so the Go
+// ratchet must assemble the secret as 0xFF*32 || DH1 || DH2 || DH3 || kyber_ss
+// (one agreement shorter) and DeriveInitialKeys must reproduce upstream's
+// root/chain/pqr exactly — the committed-vector counterpart to the live no-OPK
+// interop in session_interop_test.go.
+
+// TestSessionsNoOneTimePreKeyVectors verifies the DH4-absent PQXDH derivation
+// against the upstream-generated sessions.json: Go re-derives the master secret
+// from the recorded dh1..dh3 + kyber_shared_secret with DH4 omitted (passing a
+// nil dh4), asserts it equals the recorded secret_input, then checks
+// ratchet.DeriveInitialKeys reproduces root/chain/pqr.
+func TestSessionsNoOneTimePreKeyVectors(t *testing.T) {
+	var batch struct {
+		Cases []struct {
+			Case              string `json:"case"`
+			SecretInput       string `json:"secret_input"`
+			DH1               string `json:"dh1"`
+			DH2               string `json:"dh2"`
+			DH3               string `json:"dh3"`
+			KyberSharedSecret string `json:"kyber_shared_secret"`
+			RootKey           string `json:"root_key"`
+			ChainKey          string `json:"chain_key"`
+			PqrKey            string `json:"pqr_key"`
+		} `json:"cases"`
+	}
+	loadVectors(t, "sessions", &batch)
+
+	const minCases = 20
+	if len(batch.Cases) < minCases {
+		t.Fatalf("sessions: %d cases, want >= %d", len(batch.Cases), minCases)
+	}
+
+	for i, c := range batch.Cases {
+		if c.Case != "pqxdh-secret-no-one-time-prekey" {
+			t.Fatalf("sessions case %d: unexpected case kind %q", i, c.Case)
+		}
+		dh1, dh2, dh3 := mustHex(t, c.DH1), mustHex(t, c.DH2), mustHex(t, c.DH3)
+		kyberSS := mustHex(t, c.KyberSharedSecret)
+		want := mustHex(t, c.SecretInput)
+
+		// DH4 absent: pass nil. The re-derived secret must equal the recorded
+		// blob and be exactly one agreement (32 bytes) shorter than a with-DH4
+		// secret (32 discontinuity + 3*32 DH + 32 kyber = 160 bytes).
+		secret := ratchet.PQXDHSecret(dh1, dh2, dh3, nil, kyberSS)
+		if !bytes.Equal(secret, want) {
+			t.Fatalf("sessions case %d: re-derived no-DH4 secret mismatch\n go   %x\n want %x", i, secret, want)
+		}
+		if len(secret) != 32+3*32+len(kyberSS) {
+			t.Fatalf("sessions case %d: no-DH4 secret length %d, want %d", i, len(secret), 32+3*32+len(kyberSS))
+		}
+
+		ik, err := ratchet.DeriveInitialKeys(dh1, dh2, dh3, nil, kyberSS)
+		if err != nil {
+			t.Fatalf("sessions case %d: DeriveInitialKeys (no DH4): %v", i, err)
+		}
+		if !bytes.Equal(ik.RootKey.Key(), mustHex(t, c.RootKey)) {
+			t.Fatalf("sessions case %d: root_key mismatch", i)
+		}
+		if !bytes.Equal(ik.ChainKey.Key(), mustHex(t, c.ChainKey)) {
+			t.Fatalf("sessions case %d: chain_key mismatch", i)
+		}
+		if !bytes.Equal(ik.PQRSeed[:], mustHex(t, c.PqrKey)) {
+			t.Fatalf("sessions case %d: pqr_key mismatch", i)
+		}
+	}
+
+	t.Logf("sessions (no-one-time-prekey, via ratchet/): %d cases == upstream", len(batch.Cases))
+}
