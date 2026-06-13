@@ -19,21 +19,23 @@ enforced by cross-implementation compatibility checks as required CI gates
 The protocol is being implemented in phases. Each phase is one or more pull
 requests; compatibility is asserted incrementally as domains land.
 
+This table tracks what has merged to the default branch.
+
 | Phase | Scope | Status |
 |-------|-------|--------|
 | P1 | Scaffold: Go module, CI, repository cleanup | ✅ |
-| P2 | Crypto primitives, curve (X25519 / XEdDSA), address types | 🚧 |
-| P3 | KEM (Kyber1024), protobuf codegen, wire messages | 🚧 |
-| P4 | Compatibility harness: committed vectors + live Rust interop | 🚧 |
-| P5 | Ratchet keys, session state, stores | 🚧 |
-| P6 | PQXDH session builder + session cipher | 🚧 |
-| P7 | Groups: sender keys + group cipher | 🚧 |
-| P8 | Sealed sender v1/v2 + AES-256-GCM-SIV | 🚧 |
-| P9 | Fingerprints + API polish + scope matrix | 🚧 |
+| P2 | Crypto primitives, curve (X25519 / XEdDSA), address types | ✅ |
+| P3 | KEM (Kyber1024), protobuf codegen, wire messages | ✅ |
+| P4 | Compatibility harness: committed vectors + live Rust interop | ✅ |
+| P5 | Ratchet keys, session state, stores | ✅ |
+| P6 | PQXDH session builder + session cipher | ✅ |
+| P7 | Groups: sender keys + group cipher | ✅ |
+| P8 | Sealed sender v1/v2 + AES-256-GCM-SIV | ✅ |
+| P9 | Fingerprints + API polish + scope matrix | 📦 this PR |
 | P10 | SPQR port + re-pin to mainline + full revalidation | 🚧 |
 | P11 | Cleanup: remove reference trees, final docs, `v0.1.0` | 🚧 |
 
-✅ landed · 🚧 planned / in progress
+✅ merged to main · 📦 this pull request · 🚧 planned
 
 ## Compatibility staging
 
@@ -52,8 +54,38 @@ target, so that the interop gate is meaningful and reproducible.
 The rationale, alternatives considered, and the exact pin boundary are recorded
 in [`decisions/0001-spqr-staged-compat.md`](decisions/0001-spqr-staged-compat.md).
 
-The authoritative, per-domain implemented/excluded matrix lands with P9; until
-then the phase table above is the source of truth for what exists.
+## Scope matrix
+
+The per-domain status of the client protocol surface. **Implemented** domains
+are wire-checked against upstream **libsignal v0.91.0** (committed Rust-generated
+vectors plus live Rust↔Go interop, per the compatibility staging above).
+**Staged** domains are deferred to a named phase. **Excluded** domains are
+deliberate non-goals for this module.
+
+| Domain | Status | Package | Notes |
+|--------|--------|---------|-------|
+| X25519 ECDH + XEdDSA sign/verify | ✅ implemented | [`curve`](curve/) | v0.91.0 vectors + interop |
+| Kyber1024 KEM (encaps/decaps) | ✅ implemented | [`kem`](kem/) | v0.91.0 decaps vectors + interop |
+| Wire messages (Signal, PreKeySignal, SenderKey, SKDM) | ✅ implemented | [`protocol`](protocol/) | golden-byte vectors both directions |
+| Symmetric primitives (AES-CBC/CTR/GCM, HKDF, HMAC) | ✅ implemented | [`internal/crypto`](internal/crypto/) | internal building blocks |
+| Double Ratchet keys + session state + stores | ✅ implemented | [`ratchet`](ratchet/), [`session`](session/), [`stores`](stores/) | KDF + state KATs |
+| PQXDH session establishment + session cipher | ✅ implemented | [`session`](session/) | both roles, with/without one-time pre-key, interop |
+| Group messaging (sender keys + group cipher) | ✅ implemented | [`groups`](groups/) | SKDM + cipher, both directions, interop |
+| Sealed sender v1 + v2 | ✅ implemented | [`sealedsender`](sealedsender/) | certificate chain + USMC + seal/decrypt, both versions, interop |
+| AES-256-GCM-SIV (RFC 8452) | ✅ implemented | [`internal/crypto/gcmsiv`](internal/crypto/gcmsiv/) | nonce-misuse-resistant AEAD for sealed sender v2 |
+| Fingerprints (numeric + scannable) | ✅ implemented | [`fingerprint`](fingerprint/) | display + scannable byte-equal vs upstream |
+| Sparse Post-Quantum Ratchet (SPQR) | 🚧 staged (P10) | `spqr` | proto fields parsed + preserved now; negotiation + mainline re-pin land in P10 |
+| X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.91.0 cannot initiate v3 |
+| ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
+| zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
+| usernames, key transparency, SVR/svrb, account-keys | ⛔ excluded | — | non-goal |
+| device transfer, media, message backup, net | ⛔ excluded | — | non-goal |
+| `incremental_mac`, HPKE, `session_cipher_legacy` | ⛔ excluded | — | upstream test-only |
+| Language bridges (Java / Swift / Node) | ⛔ excluded | — | deleted from this fork, not ported |
+
+Legend: ✅ implemented (v0.91.0 compat) · 🚧 staged to a later phase · ⛔
+excluded (deliberate non-goal). FIPS certification and key-material zeroization
+guarantees beyond the documented Go posture are also out of scope.
 
 ## Reference tree
 
@@ -78,12 +110,21 @@ is older.
 
 ## Usage
 
-API documentation and usage examples will be added as the protocol surface
-lands (session round-trip, group messaging, and sealed sender examples arrive
-with P9). For now, see the package documentation:
+Runnable examples live alongside the packages they document (Go renders them in
+`go doc` and runs them under `go test`):
+
+- [`session.Example_sessionRoundTrip`](session/example_test.go) — a PQXDH
+  handshake and the first encrypted message between two parties.
+- [`groups.Example_groupMessaging`](groups/example_test.go) — sender-key
+  distribution and a group-encrypted message.
+- [`sealedsender.Example_sealedSender`](sealedsender/example_test.go) — a sealed
+  sender v1 message with certificate-chain validation.
+
+Browse the full API with:
 
 ```shell
 go doc github.com/GoCodeAlone/libsignal-go
+go doc github.com/GoCodeAlone/libsignal-go/session
 ```
 
 ## Development

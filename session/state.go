@@ -1,8 +1,18 @@
-// Package session models the Double Ratchet session state: SessionState (a thin
-// wrapper over the generated proto.SessionStructure) and SessionRecord (the
-// current state plus a bounded list of archived states). It is a pure-Go port
-// of rust/protocol/src/state/session.rs and serializes to the same
-// SessionStructure / RecordStructure protobufs as upstream libsignal v0.91.0.
+// Package session models the Double Ratchet session state and the PQXDH
+// establishment + message cipher: SessionState (a thin wrapper over the
+// generated proto.SessionStructure), SessionRecord (the current state plus a
+// bounded list of archived states), ProcessPreKeyBundle / InitializeBobSession
+// (handshake), and Encrypt / Decrypt (the message cipher). It is a pure-Go port
+// of rust/protocol/src/state/session.rs, session.rs, and ratchet.rs, and
+// serializes to the same SessionStructure / RecordStructure protobufs as
+// upstream libsignal v0.91.0.
+//
+// Compatibility staging: sessions negotiate at the v0.91.0 surface, where the
+// Sparse Post-Quantum Ratchet (SPQR) is optional — the pq_ratchet message field
+// and pq_ratchet_state are parsed and preserved but not produced. SPQR
+// negotiation lands in the P10 phase, after which the compat pin is upgraded to
+// upstream mainline; see decisions/0001-spqr-staged-compat.md and the README
+// scope matrix.
 package session
 
 import (
