@@ -26,7 +26,10 @@ type Store interface {
 	LoadSession(ctx context.Context, address address.ProtocolAddress) (*SessionRecord, error)
 
 	// StoreSession sets the session record for address, overwriting any existing
-	// entry.
+	// entry. record must be non-nil; implementations reject a nil record, since a
+	// nil stored record would be indistinguishable from the (nil, nil) "absent"
+	// result of LoadSession (mirroring the stores.SenderKeyStore convention).
+	// stores/inmem's SessionStore returns an error on a nil record.
 	StoreSession(ctx context.Context, address address.ProtocolAddress, record *SessionRecord) error
 }
 
@@ -80,6 +83,11 @@ func ProcessPreKeyBundle(
 	sessionStore Store,
 	identityStore stores.IdentityKeyStore,
 ) error {
+	// bundle is a public parameter; a nil pointer must surface as a typed error,
+	// not a panic, across the public API boundary.
+	if bundle == nil {
+		return fmt.Errorf("%w: nil bundle", ErrInvalidPreKeyBundle)
+	}
 	theirIdentity := bundle.IdentityKey()
 
 	// 1. Identity trust check (Sending direction).

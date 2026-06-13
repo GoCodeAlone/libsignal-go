@@ -148,8 +148,15 @@ type PendingPreKeyMessage struct {
 }
 
 // PendingPreKeyMessage returns the unacknowledged pre-key message state and
-// whether one is pending. Both the EC and Kyber pending records must be present
-// for a complete pre-key message (the v4 case).
+// whether one is pending. The EC pending pre-key record is the sole gate: when
+// it is absent there is no pending message (ok=false). The Kyber pending record
+// is OPTIONAL and read opportunistically — its id and ciphertext fill in only
+// when present. This mirrors upstream SessionState::
+// unacknowledged_pre_key_message_items (rust/protocol/src/state/session.rs:536),
+// which keys solely on `pending_pre_key` and passes `pending_kyber_pre_key` as
+// an Option (so kyber_pre_key_id is Option<KyberPreKeyId>). At v4 the Kyber
+// record is expected present (PreKeyID nil "should not happen at v4"), but its
+// absence is not treated as "no pending message" here, matching upstream.
 func (s *SessionState) PendingPreKeyMessage() (PendingPreKeyMessage, bool) {
 	pp := s.structure.GetPendingPreKey()
 	if pp == nil {

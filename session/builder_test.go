@@ -17,14 +17,15 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/stores"
 )
 
-// --- in-test store fakes implementing the session-local store interfaces ---
+// --- in-test store fakes implementing the builder's store interfaces ---
 //
-// These satisfy session.IdentityKeyStore / session.SessionStore directly. The
-// real stores/inmem types use stores.Direction / stores.IdentityChange named
-// types and so don't structurally match the session-local interfaces; bridging
-// stores/inmem to the session layer is a separate integration seam (the
-// session<->stores import cycle is documented in builder.go). For unit-testing
-// the builder, in-test fakes are the right tool — no dependency on stores/.
+// These satisfy stores.IdentityKeyStore and the session-local Store interface
+// directly (see the compile-time assertions below). For unit-testing the
+// builder, in-test fakes are the right tool: they give the test direct control
+// over trust decisions (trustAll / recorded identities) and let it count
+// SaveIdentity calls, without pulling in stores/inmem. (stores/inmem also
+// satisfies these interfaces — the compat interop tests drive the builder
+// through it — but the unit tests here deliberately keep that dependency out.)
 
 type fakeIdentityStore struct {
 	identity  curve.KeyPair
@@ -388,6 +389,24 @@ func TestProcessPreKeyBundleUntrustedIdentity(t *testing.T) {
 	// No session stored, no identity saved on rejection.
 	if rec, _ := sessStore.LoadSession(context.Background(), addr(t)); rec != nil {
 		t.Fatal("session was stored despite untrusted identity")
+	}
+}
+
+// TestProcessPreKeyBundleNilBundle confirms a nil *PreKeyBundle is rejected with
+// a typed error rather than panicking across the public API boundary, and that
+// nothing is stored.
+func TestProcessPreKeyBundleNilBundle(t *testing.T) {
+	idStore := newFakeIdentityStore(t, 203, 9004)
+	sessStore := newFakeSessionStore()
+	err := ProcessPreKeyBundle(context.Background(), &fixedReaderB{b: 213}, addr(t), nil, sessStore, idStore)
+	if !errors.Is(err, ErrInvalidPreKeyBundle) {
+		t.Fatalf("err = %v, want ErrInvalidPreKeyBundle", err)
+	}
+	if len(sessStore.records) != 0 {
+		t.Fatal("session stored for a nil bundle")
+	}
+	if idStore.saveCalls != 0 {
+		t.Fatal("identity saved for a nil bundle")
 	}
 }
 
