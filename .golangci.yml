@@ -92,3 +92,18 @@ linters:
         linters:
           - errcheck
           - gosec
+      # internal/spqr/chunked is a from-scratch byte-exact port of SPQR
+      # v1.5.1's GF(2^16) erasure code (T27 Slice B). gosec false positives on
+      # the unmodified algorithm, same justification as internal/mlkem768incr:
+      #   - G115/G602: the integer conversions are all field-bounded — GF(2^16)
+      #     values are uint16 by construction, chunk/poly indices are bounded by
+      #     the 16-poly / 32-byte chunk layout, and the high/low byte splits of a
+      #     uint16 are exact. Pinned byte-for-byte by the SPQR golden chunk +
+      #     GF16 mul/div oracles.
+      #   - G404: the *_test.go files use math/rand to drive property/erasure
+      #     tests and the independent GF16 log-table reference; no security
+      #     dependence on the RNG (byte-exactness comes from the crate vectors).
+      #   - G104: rng.Read in tests never errors (math/rand).
+      - path: internal/spqr/chunked/
+        linters:
+          - gosec

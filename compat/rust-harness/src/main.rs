@@ -223,10 +223,26 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
             );
             obj.insert("cases".into(), Value::Array(gen_mlkem_incremental()));
         }
+        "spqr-chunks" => {
+            // Golden BE-u16 chunk vectors + GF16 mul/div triples captured from
+            // the SPQR v1.5.1 crate (test-utils feature). Pins the big-endian
+            // point/coefficient wire serialization that the erasure property
+            // test cannot see (encoder+decoder share their convention).
+            obj.insert(
+                "_note".into(),
+                json!({
+                    "spqr_reference": "1.5.1 (git tag v1.5.1, rev f2589fef855c10f39d72634dab3d14654dd410bf, test-utils feature)",
+                    "endianness": "GF16 points/coefficients serialize BIG-endian u16 (encoding/polynomial.rs Pt::serialize, Poly::serialize, chunk_at) — OPPOSITE of the KEM EncapsState LE-i16",
+                    "gf_poly": "0x1100b (x^16+x^12+x^3+x+1)",
+                }),
+            );
+            obj.insert("cases".into(), Value::Array(gen_spqr_chunks()));
+            obj.insert("gf_triples".into(), Value::Array(gen_gf16_triples()));
+        }
         other => {
             return Err(format!(
                 "unknown domain {other:?}; \
-                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender|mlkem-incremental"
+                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender|mlkem-incremental|spqr-chunks"
             ));
         }
     };
@@ -1036,6 +1052,95 @@ fn gen_mlkem_incremental() -> Vec<Value> {
     }
 
     cases
+}
+
+// --- spqr-chunks domain: golden BE-u16 chunk vectors + GF16 mul/div triples
+//     captured from SPQR v1.5.1 (test-utils), oracle leg (c) for T27 Slice B. ---
+
+/// Number of golden chunk cases and GF16 triples to emit. Sized to cover the
+/// literal-data path (low indices), the interpolation path (high indices), and a
+/// realistic ek-sized message.
+const N_SPQR_CHUNK_MESSAGES: usize = 6;
+const N_GF16_TRIPLES: usize = 64;
+
+/// spqr-chunks domain. For each fixed message, capture a set of `chunk_at(i)`
+/// outputs from the genuine SPQR PolyEncoder — including indices within the
+/// original data (literal points) and beyond it (interpolated points) — so the
+/// Go port's chunk bytes are pinned to the crate's big-endian wire byte-for-byte.
+fn gen_spqr_chunks() -> Vec<Value> {
+    use spqr::encoding::polynomial::PolyEncoder;
+    use spqr::encoding::Encoder;
+
+    let mut rng = seeded_rng();
+    // Message lengths exercising: tiny, sub-chunk, multi-chunk, and the
+    // 1152-byte incremental-ML-KEM ek (the real payload SPQR chunks).
+    let lengths = [2usize, 10, 32, 64, 320, 1152];
+    let mut cases = Vec::new();
+    for (mi, &len) in lengths.iter().take(N_SPQR_CHUNK_MESSAGES).enumerate() {
+        let mut msg = vec![0u8; len];
+        for b in msg.iter_mut() {
+            *b = rng.random(); // in-scope rand::Rng fills bytes from the seeded CSPRNG
+        }
+
+        // Indices spanning the literal-data range and well past it (forcing the
+        // encoder's Points→Polys interpolation transition).
+        let max_data_chunks = (len / 32) + 1;
+        let mut indices: Vec<u16> = Vec::new();
+        for i in 0..(max_data_chunks as u16 + 2) {
+            indices.push(i);
+        }
+        // A few high indices to pin interpolated points.
+        for k in 0..4u16 {
+            indices.push(max_data_chunks as u16 * 3 + k);
+        }
+
+        let mut chunks = Vec::new();
+        for &idx in &indices {
+            // A fresh encoder per chunk keeps each capture independent of the
+            // lazy Points→Polys state transition order.
+            let mut enc = PolyEncoder::encode_bytes(&msg).expect("encode_bytes");
+            let c = enc.chunk_at(idx);
+            chunks.push(json!({
+                "index": c.index,
+                "data": hex(&c.data),
+            }));
+        }
+
+        cases.push(json!({
+            "msg_index": mi,
+            "message": hex(&msg),
+            "chunks": chunks,
+        }));
+    }
+    cases
+}
+
+/// GF(2^16) mul/div KAT triples from the genuine SPQR GF16 (POLY=0x1100b). Each
+/// triple records a, b, a*b and (when b != 0) a/b, so the Go field is pinned to
+/// the crate's exact arithmetic independently of the property tests.
+fn gen_gf16_triples() -> Vec<Value> {
+    use spqr::encoding::gf::GF16;
+
+    let mut rng = seeded_rng();
+    let mut out = Vec::new();
+    for _ in 0..N_GF16_TRIPLES {
+        let a = rng.random::<u16>();
+        let b = rng.random::<u16>();
+        let prod = (GF16::new(a) * GF16::new(b)).value;
+        let mut case = json!({
+            "a": a,
+            "b": b,
+            "product": prod,
+        });
+        if b != 0 {
+            let quot = (GF16::new(a) / GF16::new(b)).value;
+            case.as_object_mut()
+                .unwrap()
+                .insert("quotient".into(), json!(quot));
+        }
+        out.push(case);
+    }
+    out
 }
 
 /// The interop CSPRNG. Session key generation and Kyber encapsulation must use a

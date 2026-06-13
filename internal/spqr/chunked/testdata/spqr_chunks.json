@@ -1,0 +1,797 @@
+{
+  "_note": {
+    "endianness": "GF16 points/coefficients serialize BIG-endian u16 (encoding/polynomial.rs Pt::serialize, Poly::serialize, chunk_at) — OPPOSITE of the KEM EncapsState LE-i16",
+    "gf_poly": "0x1100b (x^16+x^12+x^3+x+1)",
+    "spqr_reference": "1.5.1 (git tag v1.5.1, rev f2589fef855c10f39d72634dab3d14654dd410bf, test-utils feature)"
+  },
+  "cases": [
+    {
+      "chunks": [
+        {
+          "data": "9d24000000000000000000000000000000000000000000000000000000000000",
+          "index": 0
+        },
+        {
+          "data": "9d24000000000000000000000000000000000000000000000000000000000000",
+          "index": 1
+        },
+        {
+          "data": "9d24000000000000000000000000000000000000000000000000000000000000",
+          "index": 2
+        },
+        {
+          "data": "9d24000000000000000000000000000000000000000000000000000000000000",
+          "index": 3
+        },
+        {
+          "data": "9d24000000000000000000000000000000000000000000000000000000000000",
+          "index": 4
+        },
+        {
+          "data": "9d24000000000000000000000000000000000000000000000000000000000000",
+          "index": 5
+        },
+        {
+          "data": "9d24000000000000000000000000000000000000000000000000000000000000",
+          "index": 6
+        }
+      ],
+      "message": "9d24",
+      "msg_index": 0
+    },
+    {
+      "chunks": [
+        {
+          "data": "3db873500bb8f367088900000000000000000000000000000000000000000000",
+          "index": 0
+        },
+        {
+          "data": "3db873500bb8f367088900000000000000000000000000000000000000000000",
+          "index": 1
+        },
+        {
+          "data": "3db873500bb8f367088900000000000000000000000000000000000000000000",
+          "index": 2
+        },
+        {
+          "data": "3db873500bb8f367088900000000000000000000000000000000000000000000",
+          "index": 3
+        },
+        {
+          "data": "3db873500bb8f367088900000000000000000000000000000000000000000000",
+          "index": 4
+        },
+        {
+          "data": "3db873500bb8f367088900000000000000000000000000000000000000000000",
+          "index": 5
+        },
+        {
+          "data": "3db873500bb8f367088900000000000000000000000000000000000000000000",
+          "index": 6
+        }
+      ],
+      "message": "3db873500bb8f3670889",
+      "msg_index": 1
+    },
+    {
+      "chunks": [
+        {
+          "data": "dcf012dad080480f9364054d5900955e7c4e4dfaeb09e811f55c150b68d246e8",
+          "index": 0
+        },
+        {
+          "data": "dcf012dad080480f9364054d5900955e7c4e4dfaeb09e811f55c150b68d246e8",
+          "index": 1
+        },
+        {
+          "data": "dcf012dad080480f9364054d5900955e7c4e4dfaeb09e811f55c150b68d246e8",
+          "index": 2
+        },
+        {
+          "data": "dcf012dad080480f9364054d5900955e7c4e4dfaeb09e811f55c150b68d246e8",
+          "index": 3
+        },
+        {
+          "data": "dcf012dad080480f9364054d5900955e7c4e4dfaeb09e811f55c150b68d246e8",
+          "index": 6
+        },
+        {
+          "data": "dcf012dad080480f9364054d5900955e7c4e4dfaeb09e811f55c150b68d246e8",
+          "index": 7
+        },
+        {
+          "data": "dcf012dad080480f9364054d5900955e7c4e4dfaeb09e811f55c150b68d246e8",
+          "index": 8
+        },
+        {
+          "data": "dcf012dad080480f9364054d5900955e7c4e4dfaeb09e811f55c150b68d246e8",
+          "index": 9
+        }
+      ],
+      "message": "dcf012dad080480f9364054d5900955e7c4e4dfaeb09e811f55c150b68d246e8",
+      "msg_index": 2
+    },
+    {
+      "chunks": [
+        {
+          "data": "537ca8e9efd6c2caae97f6151dc7006e140785c85eeb888d393d7e7eba0e61fd",
+          "index": 0
+        },
+        {
+          "data": "58a5c7112af392080785bbf6225f6e1b79420a6d62da0cf208648cc21d2d4bc6",
+          "index": 1
+        },
+        {
+          "data": "44ce77197597634eecb86dd362f7dc84ce8d8a89268990785b8f8b0de443358b",
+          "index": 2
+        },
+        {
+          "data": "4f1718e1b0b2338c45aa20305d6fb2f1a3c8052c1ab814076ad679b143601fb0",
+          "index": 3
+        },
+        {
+          "data": "7c180702cb5f91c92ac9d192e3a7a9b1b1189b4aae2fb967fc5984930694c911",
+          "index": 4
+        },
+        {
+          "data": "066d88cc63e1340e1f32f4f8ce942dae2377376993596f2692a7691374120a15",
+          "index": 9
+        },
+        {
+          "data": "1a0638c43c85c548f40f22dd8e3c9f3194b8b78dd70af3acc14c6edc8d7c7458",
+          "index": 10
+        },
+        {
+          "data": "11df573cf9a0958a5d1d6f3eb1a4f144f9fd3828eb3b77d3f0159c602a5f5e63",
+          "index": 11
+        },
+        {
+          "data": "22d048df824d37cf327e9e9c0f6cea04eb2da64e5facdab3669a61426fab88c2",
+          "index": 12
+        }
+      ],
+      "message": "537ca8e9efd6c2caae97f6151dc7006e140785c85eeb888d393d7e7eba0e61fd58a5c7112af392080785bbf6225f6e1b79420a6d62da0cf208648cc21d2d4bc6",
+      "msg_index": 3
+    },
+    {
+      "chunks": [
+        {
+          "data": "ca5a327a9c9529040015bb8ba1041cedaa67abf4b92a0fe988f62ab6f34ab9ae",
+          "index": 0
+        },
+        {
+          "data": "a189832f51193a9b7ca3e1e4a88bea81301c56f4bb47a07348c73fbab933eec3",
+          "index": 1
+        },
+        {
+          "data": "fe9cfc63f11a4bf132fa39ca8336d688730209ab625c248af2bb281edc19c723",
+          "index": 2
+        },
+        {
+          "data": "2a972a91e8f5357404ec09fbbfb7b0468d8678a1871d0fd37ae8961b7b925a35",
+          "index": 3
+        },
+        {
+          "data": "93d090b84263b11ac70543d53e28ebcc20853fea1db301225ce53cae88695da8",
+          "index": 4
+        },
+        {
+          "data": "563dab520bcf3ea1cca4938607b9dbcc99727aa03b95630e92894ef803d3a9ed",
+          "index": 5
+        },
+        {
+          "data": "64054078ddbba7ed1338535fde4d4f19c346b1abd7dbaf82cafed7aeac31f341",
+          "index": 6
+        },
+        {
+          "data": "d5c7f26d91d21a54297fbdf961ddb0afb07a456ba1da021bddfebcd6a905ba80",
+          "index": 7
+        },
+        {
+          "data": "d379a5a5b2823c345d6b8ed0a445b39b0fb4df3550fd9c184ea538afbe9febd9",
+          "index": 8
+        },
+        {
+          "data": "c84cc70d1d8f600ee52ac53bdf48e085d90b129873f63f86e4105aea164930cc",
+          "index": 9
+        },
+        {
+          "data": "ec586da1a90aabd328477fec55905f5bea2be09811220d774d494895a9c5632c",
+          "index": 10
+        },
+        {
+          "data": "af95288addb9e90f1568af3f0119eff3cfc0c42297d7765979148f23e0185d8a",
+          "index": 11
+        },
+        {
+          "data": "0989e460407285d4d886b16ac53024dcb875ccfb803daa47a6bd09592d9ef741",
+          "index": 12
+        },
+        {
+          "data": "1d705608743f561a2d0b431cd1bd3f28950386f2a1b93a49579b2cce5471b6ab",
+          "index": 33
+        },
+        {
+          "data": "f783a893f2a7389543cc5623de03becd126d5fa8ffd112319eb88ef88b1f90ef",
+          "index": 34
+        },
+        {
+          "data": "2041e994a815d4814c68e9c4b8e8feab813ea5674df6700831b9b534a2b62e67",
+          "index": 35
+        },
+        {
+          "data": "19c618aeacbfa993e3a0a6aba17267c9a4c3906fb01e86043e48e43cb28e5c27",
+          "index": 36
+        }
+      ],
+      "message": "ca5a327a9c9529040015bb8ba1041cedaa67abf4b92a0fe988f62ab6f34ab9aea189832f51193a9b7ca3e1e4a88bea81301c56f4bb47a07348c73fbab933eec3fe9cfc63f11a4bf132fa39ca8336d688730209ab625c248af2bb281edc19c7232a972a91e8f5357404ec09fbbfb7b0468d8678a1871d0fd37ae8961b7b925a3593d090b84263b11ac70543d53e28ebcc20853fea1db301225ce53cae88695da8563dab520bcf3ea1cca4938607b9dbcc99727aa03b95630e92894ef803d3a9ed64054078ddbba7ed1338535fde4d4f19c346b1abd7dbaf82cafed7aeac31f341d5c7f26d91d21a54297fbdf961ddb0afb07a456ba1da021bddfebcd6a905ba80d379a5a5b2823c345d6b8ed0a445b39b0fb4df3550fd9c184ea538afbe9febd9c84cc70d1d8f600ee52ac53bdf48e085d90b129873f63f86e4105aea164930cc",
+      "msg_index": 4
+    },
+    {
+      "chunks": [
+        {
+          "data": "72c584a0f8bb8114976fbe92e0ea1186b869da93d62c02a430fa66edc5520c5c",
+          "index": 0
+        },
+        {
+          "data": "9b32791a25e46b75f9f3e4a2c18fa64aa9591d7930fd125ee03948ad5c980ada",
+          "index": 1
+        },
+        {
+          "data": "98e01dcb12648ef9506a1a18e7078f9dac5fcb2fddf4d7b0c3ec0144e3465a7a",
+          "index": 2
+        },
+        {
+          "data": "1984c1d168a685b8e85301588891dd5b52d5e520d72a1d05f992e3ede9e980cc",
+          "index": 3
+        },
+        {
+          "data": "0f103c7b00f6e4d5b59da35f372be7460913379f3ecba41b54dc4d3151e85d7a",
+          "index": 4
+        },
+        {
+          "data": "8eaf4afdcb124d748c3a43bbc5e315bedf6ba14847e1c7805d4ccd3db394cc02",
+          "index": 5
+        },
+        {
+          "data": "6478807a2d920135f316d7f17fce0afbdc22dfcfe9aa624e5b52f8839e7ac994",
+          "index": 6
+        },
+        {
+          "data": "90ffc8000fe63abdfd753cb7b8b4bf2583449cc3463c4680edd971802174cfbf",
+          "index": 7
+        },
+        {
+          "data": "bb1abef5f31a9f84585244e30cf090cb2f15f1b56abd777142a7be38fb31edc1",
+          "index": 8
+        },
+        {
+          "data": "ff896f9f29c3b9398de4792057f14e2b7c7a9b687713cccb0a1a1a1e5b75e41d",
+          "index": 9
+        },
+        {
+          "data": "1fe946a3936acf9dfedf8bd081122706cf718488acc61bb29d2f8310284cfd1d",
+          "index": 10
+        },
+        {
+          "data": "5bcc1b4f27c2a7134998fe2a9a600297eafb9950266171dcdd41fec944e36015",
+          "index": 11
+        },
+        {
+          "data": "1a8148924bafd791de60e28b77a4ab0224c6c9f31d04d2bfda1481d0c1b321d3",
+          "index": 12
+        },
+        {
+          "data": "8bfeec412a45859a7072d22855aef7da25240c58c2eb9a8fb9e0151cdc3955d9",
+          "index": 13
+        },
+        {
+          "data": "696b746ed19b38a012394ebf547c9656b1c9f4e0399b862f9e8d603e06c7755c",
+          "index": 14
+        },
+        {
+          "data": "e5c437fd9f46fbc83f60b329d8c63fd905575ee2af03f1137ca522b50f2e5ee2",
+          "index": 15
+        },
+        {
+          "data": "a0ea9a7bc855d874b4a530e7a156f22359c54b7c711d1039cdbfe5229d11fa98",
+          "index": 16
+        },
+        {
+          "data": "9b3c9ee4a0226adb3cfb69f1fc230f203f8d91e6b78659368b295ba95d7c24db",
+          "index": 17
+        },
+        {
+          "data": "6e041cef40bb8c80a936a0b27c995701aaa48913e416343957bd6eaf0a194581",
+          "index": 18
+        },
+        {
+          "data": "f5af4133cf3835c9e9128a9a4b94360056b66f8e828714777a343e12ea5d02ea",
+          "index": 19
+        },
+        {
+          "data": "444d3e2889632b44a8b9a19ccfe807e5333d53db276cdd125794a943f7b78b38",
+          "index": 20
+        },
+        {
+          "data": "a8053412e48f88760765c0b87ded96c4566b69a0386557ffffc2ffe51ba3e460",
+          "index": 21
+        },
+        {
+          "data": "31da8243089dba81e5f2420761511682a6db8c12ff91ebc7c28f2cb70a725d62",
+          "index": 22
+        },
+        {
+          "data": "c557869dc0ee2434dd1706ded02e48cec457554f5baf606033a5803a449cffbf",
+          "index": 23
+        },
+        {
+          "data": "04275414bbb51b74d3c80953c75f757fb38f09edda31450f2bd54b9cae381b1c",
+          "index": 24
+        },
+        {
+          "data": "d01a36176a63d99e326e62c4b3ac688bf834a22b62de8be4177658c3833d64bb",
+          "index": 25
+        },
+        {
+          "data": "343cd2b776a0b4f05125afd2660508a989d570f310189e56892f6b5a6d61c1bf",
+          "index": 26
+        },
+        {
+          "data": "52269cbf2593fdd02719f455e34653d5cc8f7cf937816a5ec4d771c6c761c0bc",
+          "index": 27
+        },
+        {
+          "data": "17d2fb08e40752689b1810fcffef35755a11e1bf19c898f8f47f7d4d71c3e29a",
+          "index": 28
+        },
+        {
+          "data": "66d6f7b89b1a79d2a5ee5d39879db8a4ef24db9e9533d77e42d3ff76e716d14f",
+          "index": 29
+        },
+        {
+          "data": "e70c512f3e7cad6582d520c090cfc32aae9fed7c515f1074f9b7ec050e76b76d",
+          "index": 30
+        },
+        {
+          "data": "b61b33f8f932adec5acf45e0f6db944ed56d63ae6f0c250f2405d8c62f59a58e",
+          "index": 31
+        },
+        {
+          "data": "7ea8d7d81e2571d775d680c286a42bf60c4be4c4057f3aeb24319dff3155639a",
+          "index": 32
+        },
+        {
+          "data": "3d1492fcc3ad22f624b986b2310bbdbff9b92e9af3009cc7890ffc03a9269f1d",
+          "index": 33
+        },
+        {
+          "data": "3685b4afb5e4358bddf3a685a05aae7a310f5dba62a07d2d0b83727a65e05ba5",
+          "index": 34
+        },
+        {
+          "data": "013743b9e7f972526bbddbd3132cba1f0c1ce2a8ffe3190b1611955015583b9b",
+          "index": 35
+        },
+        {
+          "data": "66ad4d7969cccc39f23f21ce8700cf31f76ea08d0b62f0e84352ee8724337ddc",
+          "index": 36
+        },
+        {
+          "data": "e278a163e2bc04ac1bec410c98411b18fc20ac4f26ae28162a97bb36f8e9503d",
+          "index": 37
+        },
+        {
+          "data": "b354ca9f223b111fe5eb3a5319463db6b6982a4430e3c90a272c972cfd9e84bc",
+          "index": 38
+        },
+        {
+          "data": "30de0dce1b2034f29a22c0085b732e3639c29c3ad2cd82de22ea19982493b1f2",
+          "index": 111
+        },
+        {
+          "data": "182d52893dd28d5f6793840e042334296b0f42c6021a93e39d17e1622a41a8d5",
+          "index": 112
+        },
+        {
+          "data": "714c680dcfdd76a88470893014e541f81e90fd7cf341be300bd65615fa4c9ac9",
+          "index": 113
+        },
+        {
+          "data": "786e92b7160e35256c9fe260d10755c9703dd0614488207f9078a12f7eedc9c1",
+          "index": 114
+        }
+      ],
+      "message": "72c584a0f8bb8114976fbe92e0ea1186b869da93d62c02a430fa66edc5520c5c9b32791a25e46b75f9f3e4a2c18fa64aa9591d7930fd125ee03948ad5c980ada98e01dcb12648ef9506a1a18e7078f9dac5fcb2fddf4d7b0c3ec0144e3465a7a1984c1d168a685b8e85301588891dd5b52d5e520d72a1d05f992e3ede9e980cc0f103c7b00f6e4d5b59da35f372be7460913379f3ecba41b54dc4d3151e85d7a8eaf4afdcb124d748c3a43bbc5e315bedf6ba14847e1c7805d4ccd3db394cc026478807a2d920135f316d7f17fce0afbdc22dfcfe9aa624e5b52f8839e7ac99490ffc8000fe63abdfd753cb7b8b4bf2583449cc3463c4680edd971802174cfbfbb1abef5f31a9f84585244e30cf090cb2f15f1b56abd777142a7be38fb31edc1ff896f9f29c3b9398de4792057f14e2b7c7a9b687713cccb0a1a1a1e5b75e41d1fe946a3936acf9dfedf8bd081122706cf718488acc61bb29d2f8310284cfd1d5bcc1b4f27c2a7134998fe2a9a600297eafb9950266171dcdd41fec944e360151a8148924bafd791de60e28b77a4ab0224c6c9f31d04d2bfda1481d0c1b321d38bfeec412a45859a7072d22855aef7da25240c58c2eb9a8fb9e0151cdc3955d9696b746ed19b38a012394ebf547c9656b1c9f4e0399b862f9e8d603e06c7755ce5c437fd9f46fbc83f60b329d8c63fd905575ee2af03f1137ca522b50f2e5ee2a0ea9a7bc855d874b4a530e7a156f22359c54b7c711d1039cdbfe5229d11fa989b3c9ee4a0226adb3cfb69f1fc230f203f8d91e6b78659368b295ba95d7c24db6e041cef40bb8c80a936a0b27c995701aaa48913e416343957bd6eaf0a194581f5af4133cf3835c9e9128a9a4b94360056b66f8e828714777a343e12ea5d02ea444d3e2889632b44a8b9a19ccfe807e5333d53db276cdd125794a943f7b78b38a8053412e48f88760765c0b87ded96c4566b69a0386557ffffc2ffe51ba3e46031da8243089dba81e5f2420761511682a6db8c12ff91ebc7c28f2cb70a725d62c557869dc0ee2434dd1706ded02e48cec457554f5baf606033a5803a449cffbf04275414bbb51b74d3c80953c75f757fb38f09edda31450f2bd54b9cae381b1cd01a36176a63d99e326e62c4b3ac688bf834a22b62de8be4177658c3833d64bb343cd2b776a0b4f05125afd2660508a989d570f310189e56892f6b5a6d61c1bf52269cbf2593fdd02719f455e34653d5cc8f7cf937816a5ec4d771c6c761c0bc17d2fb08e40752689b1810fcffef35755a11e1bf19c898f8f47f7d4d71c3e29a66d6f7b89b1a79d2a5ee5d39879db8a4ef24db9e9533d77e42d3ff76e716d14fe70c512f3e7cad6582d520c090cfc32aae9fed7c515f1074f9b7ec050e76b76db61b33f8f932adec5acf45e0f6db944ed56d63ae6f0c250f2405d8c62f59a58e7ea8d7d81e2571d775d680c286a42bf60c4be4c4057f3aeb24319dff3155639a3d1492fcc3ad22f624b986b2310bbdbff9b92e9af3009cc7890ffc03a9269f1d3685b4afb5e4358bddf3a685a05aae7a310f5dba62a07d2d0b83727a65e05ba5013743b9e7f972526bbddbd3132cba1f0c1ce2a8ffe3190b1611955015583b9b",
+      "msg_index": 5
+    }
+  ],
+  "domain": "spqr-chunks",
+  "gf_triples": [
+    {
+      "a": 31389,
+      "b": 28964,
+      "product": 22480,
+      "quotient": 47492
+    },
+    {
+      "a": 4669,
+      "b": 23480,
+      "product": 45380,
+      "quotient": 54724
+    },
+    {
+      "a": 55923,
+      "b": 10576,
+      "product": 145,
+      "quotient": 53666
+    },
+    {
+      "a": 21259,
+      "b": 51384,
+      "product": 24971,
+      "quotient": 30691
+    },
+    {
+      "a": 31987,
+      "b": 35175,
+      "product": 48596,
+      "quotient": 16063
+    },
+    {
+      "a": 64776,
+      "b": 13449,
+      "product": 32947,
+      "quotient": 15781
+    },
+    {
+      "a": 16092,
+      "b": 25840,
+      "product": 30557,
+      "quotient": 20414
+    },
+    {
+      "a": 32274,
+      "b": 18138,
+      "product": 18287,
+      "quotient": 42462
+    },
+    {
+      "a": 53200,
+      "b": 42624,
+      "product": 24224,
+      "quotient": 62860
+    },
+    {
+      "a": 41800,
+      "b": 9999,
+      "product": 4883,
+      "quotient": 50822
+    },
+    {
+      "a": 56723,
+      "b": 24420,
+      "product": 55952,
+      "quotient": 16540
+    },
+    {
+      "a": 29445,
+      "b": 54605,
+      "product": 64336,
+      "quotient": 31038
+    },
+    {
+      "a": 18521,
+      "b": 27392,
+      "product": 56113,
+      "quotient": 56330
+    },
+    {
+      "a": 62357,
+      "b": 45406,
+      "product": 39513,
+      "quotient": 56584
+    },
+    {
+      "a": 15228,
+      "b": 3150,
+      "product": 13773,
+      "quotient": 10915
+    },
+    {
+      "a": 28237,
+      "b": 17146,
+      "product": 25907,
+      "quotient": 18817
+    },
+    {
+      "a": 36587,
+      "b": 34825,
+      "product": 58302,
+      "quotient": 34609
+    },
+    {
+      "a": 27368,
+      "b": 56081,
+      "product": 62465,
+      "quotient": 56577
+    },
+    {
+      "a": 9973,
+      "b": 58716,
+      "product": 21593,
+      "quotient": 44350
+    },
+    {
+      "a": 10261,
+      "b": 62219,
+      "product": 64657,
+      "quotient": 4808
+    },
+    {
+      "a": 1384,
+      "b": 61650,
+      "product": 28188,
+      "quotient": 65423
+    },
+    {
+      "a": 326,
+      "b": 51432,
+      "product": 5841,
+      "quotient": 35237
+    },
+    {
+      "a": 33875,
+      "b": 43644,
+      "product": 34059,
+      "quotient": 3443
+    },
+    {
+      "a": 55720,
+      "b": 5353,
+      "product": 16378,
+      "quotient": 499
+    },
+    {
+      "a": 11759,
+      "b": 21206,
+      "product": 24824,
+      "quotient": 50828
+    },
+    {
+      "a": 64706,
+      "b": 10442,
+      "product": 51689,
+      "quotient": 30306
+    },
+    {
+      "a": 4526,
+      "b": 23959,
+      "product": 20037,
+      "quotient": 27908
+    },
+    {
+      "a": 53750,
+      "b": 65045,
+      "product": 56175,
+      "quotient": 58038
+    },
+    {
+      "a": 49949,
+      "b": 6343,
+      "product": 338,
+      "quotient": 30827
+    },
+    {
+      "a": 50176,
+      "b": 50030,
+      "product": 22950,
+      "quotient": 57861
+    },
+    {
+      "a": 32020,
+      "b": 32263,
+      "product": 29188,
+      "quotient": 26774
+    },
+    {
+      "a": 53637,
+      "b": 2248,
+      "product": 59847,
+      "quotient": 14050
+    },
+    {
+      "a": 61790,
+      "b": 31211,
+      "product": 19215,
+      "quotient": 9031
+    },
+    {
+      "a": 648,
+      "b": 43149,
+      "product": 851,
+      "quotient": 43483
+    },
+    {
+      "a": 10297,
+      "b": 1341,
+      "product": 62751,
+      "quotient": 54512
+    },
+    {
+      "a": 38270,
+      "b": 44670,
+      "product": 56170,
+      "quotient": 14653
+    },
+    {
+      "a": 39354,
+      "b": 46094,
+      "product": 52058,
+      "quotient": 52244
+    },
+    {
+      "a": 42337,
+      "b": 13565,
+      "product": 30189,
+      "quotient": 2359
+    },
+    {
+      "a": 27992,
+      "b": 6309,
+      "product": 16272,
+      "quotient": 15206
+    },
+    {
+      "a": 11463,
+      "b": 56849,
+      "product": 17909,
+      "quotient": 6273
+    },
+    {
+      "a": 41002,
+      "b": 50163,
+      "product": 46970,
+      "quotient": 61321
+    },
+    {
+      "a": 59538,
+      "b": 44552,
+      "product": 20988,
+      "quotient": 63824
+    },
+    {
+      "a": 25863,
+      "b": 27269,
+      "product": 42871,
+      "quotient": 63858
+    },
+    {
+      "a": 36283,
+      "b": 19958,
+      "product": 14373,
+      "quotient": 10356
+    },
+    {
+      "a": 28962,
+      "b": 27999,
+      "product": 34650,
+      "quotient": 33171
+    },
+    {
+      "a": 39534,
+      "b": 43803,
+      "product": 48435,
+      "quotient": 34399
+    },
+    {
+      "a": 41849,
+      "b": 60482,
+      "product": 58264,
+      "quotient": 44075
+    },
+    {
+      "a": 59402,
+      "b": 47725,
+      "product": 15474,
+      "quotient": 46952
+    },
+    {
+      "a": 10338,
+      "b": 21210,
+      "product": 57918,
+      "quotient": 64533
+    },
+    {
+      "a": 14604,
+      "b": 24306,
+      "product": 6218,
+      "quotient": 57700
+    },
+    {
+      "a": 19720,
+      "b": 48484,
+      "product": 41749,
+      "quotient": 59020
+    },
+    {
+      "a": 55436,
+      "b": 10946,
+      "product": 62771,
+      "quotient": 48506
+    },
+    {
+      "a": 2333,
+      "b": 52269,
+      "product": 42809,
+      "quotient": 8360
+    },
+    {
+      "a": 12363,
+      "b": 57286,
+      "product": 19514,
+      "quotient": 52154
+    },
+    {
+      "a": 53450,
+      "b": 12122,
+      "product": 62819,
+      "quotient": 8180
+    },
+    {
+      "a": 46386,
+      "b": 4218,
+      "product": 47274,
+      "quotient": 34602
+    },
+    {
+      "a": 31644,
+      "b": 26005,
+      "product": 46100,
+      "quotient": 20479
+    },
+    {
+      "a": 50985,
+      "b": 17412,
+      "product": 42172,
+      "quotient": 62230
+    },
+    {
+      "a": 63744,
+      "b": 4629,
+      "product": 35514,
+      "quotient": 52910
+    },
+    {
+      "a": 64443,
+      "b": 52619,
+      "product": 35478,
+      "quotient": 32930
+    },
+    {
+      "a": 48033,
+      "b": 41476,
+      "product": 46319,
+      "quotient": 46901
+    },
+    {
+      "a": 10012,
+      "b": 38637,
+      "product": 215,
+      "quotient": 96
+    },
+    {
+      "a": 45482,
+      "b": 38247,
+      "product": 17087,
+      "quotient": 8461
+    },
+    {
+      "a": 7851,
+      "b": 1268,
+      "product": 25885,
+      "quotient": 29059
+    }
+  ],
+  "seed": "0x51636e616c476f00"
+}

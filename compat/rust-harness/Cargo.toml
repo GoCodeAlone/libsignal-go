@@ -60,3 +60,12 @@ futures = "0.3"
 # host-independent and free of the cryspen/libcrux#1275 byte-swap (which the Go
 # port handles defensively regardless — see gen_mlkem_incremental).
 libcrux-ml-kem = { version = "=0.0.8", default-features = false, features = ["incremental", "mlkem768", "alloc"] }
+# The SPQR crate itself, pinned to the SAME rev libsignal v0.91.0 pulls in
+# transitively (git tag v1.5.1, rev f2589fe — see Cargo.lock), with `test-utils`
+# enabled. test-utils is a dependency-free feature flag that re-exports SPQR's
+# otherwise pub(crate) `encoding` module (GF16 + the polynomial chunk
+# encoder/decoder). The harness calls encoding::polynomial::PolyEncoder::chunk_at
+# and the GF16 Mul/Div operators to capture golden BE-u16 chunk byte vectors and
+# GF16 mul/div triples — oracle leg (c) for T27 Slice B, pinning the big-endian
+# wire that the erasure property test alone cannot catch.
+spqr = { git = "https://github.com/signalapp/SparsePostQuantumRatchet.git", tag = "v1.5.1", features = ["test-utils"] }

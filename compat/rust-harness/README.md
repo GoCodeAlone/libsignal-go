@@ -77,6 +77,14 @@ Domains:
   for the pure-Go `internal/mlkem768incr` incremental layer; the generated batch
   is committed at
   `internal/mlkem768incr/testdata/libcrux_incremental_mlkem768.json`.
+- `spqr-chunks` — golden byte vectors for SPQR v1.5.1's GF(2^16) chunked-transport
+  erasure code (the `test-utils` feature exposes its `encoding` module): a set of
+  `chunk_at(i)` outputs (`cases`) pinning the BIG-endian u16 point/coefficient
+  wire, plus GF16 `mul`/`div` triples (`gf_triples`) pinning the field
+  (POLY=0x1100b). Oracle leg (c) for the pure-Go `internal/spqr/chunked` package —
+  the erasure property test alone is blind to a uniformly-wrong endianness, so the
+  golden bytes are required. Committed at
+  `internal/spqr/chunked/testdata/spqr_chunks.json`.
 
 Example:
 
