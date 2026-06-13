@@ -41,12 +41,16 @@ use sha2::Sha256;
 use libsignal_protocol::{
     create_sender_key_distribution_message, group_decrypt, group_encrypt, kem, message_decrypt,
     message_encrypt, process_prekey_bundle, process_sender_key_distribution_message,
-    CiphertextMessage, CiphertextMessageType, DeviceId, Fingerprint, GenericSignedPreKey,
-    IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemSenderKeyStore, InMemSignalProtocolStore,
-    KeyPair, KyberPayload, KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyBundle,
-    PreKeyId, PreKeyRecord, PreKeySignalMessage, PreKeyStore, PrivateKey, ProtocolAddress,
-    PublicKey, SenderKeyDistributionMessage, SenderKeyMessage, SenderKeyRecord, SignalMessage,
+    sealed_sender_decrypt_to_usmc, sealed_sender_encrypt_from_usmc,
+    sealed_sender_multi_recipient_encrypt, Aci, CiphertextMessage, CiphertextMessageType,
+    ContentHint, DeviceId, Fingerprint, GenericSignedPreKey, IdentityKey, IdentityKeyPair,
+    IdentityKeyStore, InMemSenderKeyStore, InMemSignalProtocolStore, KeyPair, KyberPayload,
+    KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyBundle, PreKeyId, PreKeyRecord,
+    PreKeySignalMessage, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey,
+    SealedSenderV2SentMessage, SenderCertificate, SenderKeyDistributionMessage, SenderKeyMessage,
+    SenderKeyRecord, ServerCertificate, ServiceId, SessionRecord, SessionStore, SignalMessage,
     SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore, Timestamp,
+    UnidentifiedSenderMessageContent,
 };
 
 /// Fixed seed for the deterministic CSPRNG. Recorded in every batch header so a
@@ -150,6 +154,7 @@ const N_FINGERPRINT_PAIRS: u32 = 8;
 const N_SESSIONS_NO_OPK: u32 = 24;
 const N_GROUPS_SETS: u32 = 8;
 const N_GROUPS_DERIVATIONS: u32 = 24;
+const N_SEALEDSENDER_CASES: u32 = 12;
 
 fn gen_vectors(domain: &str) -> Result<(), String> {
     // Every batch carries a {domain, seed} header. Most domains add a flat
@@ -190,10 +195,13 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
                 Value::Array(gen_sender_key_derivations()),
             );
         }
+        "sealedsender" => {
+            obj.insert("cases".into(), Value::Array(gen_sealedsender()));
+        }
         other => {
             return Err(format!(
                 "unknown domain {other:?}; \
-                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups"
+                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender"
             ));
         }
     };
@@ -750,6 +758,93 @@ fn gen_groups() -> Vec<Value> {
     cases
 }
 
+/// sealedsender domain: sealed sender v1 DECRYPT fixtures. A sealed message is
+/// non-deterministic (random ephemeral key), so rather than pin bytes this
+/// records, per case, the recipient's identity private key, the trust root, the
+/// expected plaintext (the inner content), and the upstream-sealed v1 bytes. The
+/// Go consumer decrypts `sealed` with `recipient_identity_private`, validates the
+/// recovered sender certificate against `trust_root`, and checks the content
+/// equals `expected_content`. This complements the live interop (which proves
+/// both directions) with a committed, no-harness-needed decrypt check.
+fn gen_sealedsender() -> Vec<Value> {
+    let mut rng = seeded_rng();
+    let mut cases = Vec::new();
+
+    for i in 0..N_SEALEDSENDER_CASES {
+        let trust_root = KeyPair::generate(&mut rng);
+        let server_key = KeyPair::generate(&mut rng);
+        let sender_identity = KeyPair::generate(&mut rng);
+        let recipient_identity = KeyPair::generate(&mut rng);
+
+        let server_cert =
+            ServerCertificate::new(1, server_key.public_key, &trust_root.private_key, &mut rng)
+                .expect("server cert");
+
+        let expiration = Timestamp::from_epoch_millis(2_000_000_000_000 + i as u64);
+        let sender_cert = SenderCertificate::new(
+            format!("sender-{i}"),
+            None,
+            sender_identity.public_key,
+            DeviceId::new(1).expect("device id"),
+            expiration,
+            server_cert,
+            &server_key.private_key,
+            &mut rng,
+        )
+        .expect("sender cert");
+
+        let content: Vec<u8> = (0..(16 + i as usize))
+            .map(|j| (i as u8) ^ j as u8)
+            .collect();
+        let usmc = UnidentifiedSenderMessageContent::new(
+            CiphertextMessageType::Whisper,
+            sender_cert,
+            content.clone(),
+            ContentHint::Resendable,
+            Some(format!("group-{i}").into_bytes()),
+        )
+        .expect("usmc");
+
+        // Seal v1: build a sender store, register the recipient identity, seal.
+        let mut store = InMemSignalProtocolStore::new(
+            IdentityKeyPair::new(
+                IdentityKey::new(sender_identity.public_key),
+                sender_identity.private_key,
+            ),
+            1,
+        )
+        .expect("store");
+        let destination =
+            ProtocolAddress::new(format!("recipient-{i}"), DeviceId::new(1).expect("dev"));
+        store
+            .save_identity(
+                &destination,
+                &IdentityKey::new(recipient_identity.public_key),
+            )
+            .now_or_never()
+            .expect("sync")
+            .expect("save identity");
+
+        let sealed =
+            sealed_sender_encrypt_from_usmc(&destination, &usmc, &store.identity_store, &mut rng)
+                .now_or_never()
+                .expect("sync")
+                .expect("seal v1");
+
+        cases.push(json!({
+            "version": "v1",
+            "recipient_identity_private": hex(&recipient_identity.private_key.serialize()),
+            "recipient_identity_public": hex(&recipient_identity.public_key.serialize()),
+            "trust_root": hex(&trust_root.public_key.serialize()),
+            "expected_content": hex(&content),
+            "expected_sender_uuid": format!("sender-{i}"),
+            "sealed": hex(&sealed),
+        }));
+    }
+
+    cases
+}
+
 // ---------------------------------------------------------------------------
 // session interop: stateful PQXDH/Double Ratchet sessions over JSON-RPC
 // ---------------------------------------------------------------------------
@@ -1166,6 +1261,273 @@ fn load_record_bytes(
 }
 
 // ---------------------------------------------------------------------------
+// sealed sender interop (v1): seal / unseal via the genuine upstream API
+// ---------------------------------------------------------------------------
+//
+// These methods are stateless w.r.t. the STORES registry: each call builds a
+// throwaway InMemSignalProtocolStore from explicit hex key material so the Go
+// test fully controls both identities. The USMC is passed pre-serialized (Go
+// builds it with its own certs in T23), so the harness only deserializes,
+// seals/unseals via sealed_sender_encrypt_from_usmc / sealed_sender_decrypt_to_usmc
+// (genuine v0.91.0), and returns the recovered USMC bytes for Go to re-parse.
+// v1 sealing draws a random ephemeral key, so interop is checked by decryptability
+// (round-trip), not byte-equality.
+
+/// Builds a throwaway InMemSignalProtocolStore owning the given identity private
+/// key (registration id is irrelevant for sealed-sender v1, fixed at 1).
+fn store_with_identity(identity_private: &[u8]) -> Result<InMemSignalProtocolStore, String> {
+    let private = PrivateKey::deserialize(identity_private).map_err(|e| e.to_string())?;
+    let public = private.public_key().map_err(|e| e.to_string())?;
+    let identity = IdentityKeyPair::new(IdentityKey::new(public), private);
+    InMemSignalProtocolStore::new(identity, 1).map_err(|e| e.to_string())
+}
+
+/// sealed.seal-v1 — seal a (pre-serialized) USMC to a single recipient via
+/// sealed_sender_encrypt_from_usmc.
+///
+/// Params: { usmc: hex, sender_identity_private: hex, recipient_identity_public: hex }
+/// Result: { sealed: hex }
+fn sealed_seal_v1(params: &Value) -> Result<Value, String> {
+    let usmc_bytes = param_bytes(params, "usmc")?;
+    let sender_private = param_bytes(params, "sender_identity_private")?;
+    let recipient_public = param_bytes(params, "recipient_identity_public")?;
+
+    let usmc =
+        UnidentifiedSenderMessageContent::deserialize(&usmc_bytes).map_err(|e| e.to_string())?;
+    let mut store = store_with_identity(&sender_private)?;
+
+    // Register the recipient's identity so the encrypt path can look it up.
+    let recipient_identity = IdentityKey::decode(&recipient_public).map_err(|e| e.to_string())?;
+    let destination = protocol_address("recipient");
+    store
+        .save_identity(&destination, &recipient_identity)
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+
+    let mut rng = interop_rng();
+    let sealed =
+        sealed_sender_encrypt_from_usmc(&destination, &usmc, &store.identity_store, &mut rng)
+            .now_or_never()
+            .expect("sync")
+            .map_err(|e| e.to_string())?;
+    Ok(json!({ "sealed": hex(&sealed) }))
+}
+
+/// sealed.unseal — decrypt a sealed sender message (v1 or v2) to its USMC via
+/// sealed_sender_decrypt_to_usmc, returning the recovered USMC bytes (Go
+/// re-parses + validates the sender cert itself). The version is taken from the
+/// message's leading byte by the upstream decoder.
+///
+/// Params: { sealed: hex, recipient_identity_private: hex }
+/// Result: { usmc: hex }
+fn sealed_unseal(params: &Value) -> Result<Value, String> {
+    let sealed = param_bytes(params, "sealed")?;
+    let recipient_private = param_bytes(params, "recipient_identity_private")?;
+
+    let store = store_with_identity(&recipient_private)?;
+    let usmc = sealed_sender_decrypt_to_usmc(&sealed, &store.identity_store)
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "usmc": hex(usmc.serialized().map_err(|e| e.to_string())?) }))
+}
+
+/// sealed.seal-v2 — multi-recipient sealed sender v2 seal via the genuine
+/// sealed_sender_multi_recipient_encrypt, then fan out each recipient's
+/// ReceivedMessage. The harness OWNS the recipient identities: for each of
+/// `num_recipients` it generates an identity + a full PQXDH bundle and runs
+/// process_prekey_bundle so the sender's store holds a SessionRecord (with a
+/// remote_registration_id, which the multi-recipient encoder requires) toward a
+/// fresh ACI ServiceId address. It returns, per recipient, that recipient's
+/// identity private key and its fanned-out ReceivedMessage bytes, so the Go test
+/// can DecryptToUSMC each and validate. Mirrors the upstream multi-recipient
+/// path; v2 sealing is randomized, so interop is checked by decryptability.
+///
+/// Params: { usmc: hex, sender_identity_private: hex, num_recipients: u32 }
+/// Result: { recipients: [{ identity_private: hex, received: hex }] }
+fn sealed_seal_v2(params: &Value) -> Result<Value, String> {
+    let usmc_bytes = param_bytes(params, "usmc")?;
+    let sender_private = param_bytes(params, "sender_identity_private")?;
+    let num_recipients = param_u32(params, "num_recipients")?;
+    if num_recipients == 0 {
+        return Err("sealed.seal-v2: num_recipients must be >= 1".to_string());
+    }
+
+    let usmc =
+        UnidentifiedSenderMessageContent::deserialize(&usmc_bytes).map_err(|e| e.to_string())?;
+    let mut sender_store = store_with_identity(&sender_private)?;
+    let mut rng = interop_rng();
+
+    // Per recipient: generate identity + bundle, process it into the sender store
+    // (creating a session w/ the registration id), and remember the address +
+    // identity private key.
+    let mut addresses: Vec<ProtocolAddress> = Vec::with_capacity(num_recipients as usize);
+    let mut recipient_privates: Vec<Vec<u8>> = Vec::with_capacity(num_recipients as usize);
+    for i in 0..num_recipients {
+        let recipient_identity = IdentityKeyPair::generate(&mut rng);
+        // A fresh ACI ServiceId; multi-recipient requires ServiceId-string names.
+        let mut uuid = [0u8; 16];
+        rand::Rng::fill(&mut rng, &mut uuid[..]);
+        let aci = Aci::from_uuid_bytes(uuid);
+        let address = ProtocolAddress::new(aci.service_id_string(), fixed_device_id());
+
+        // Build the recipient's bundle in its own store, then process it as Alice
+        // into the sender store so the sender has a session toward `address`.
+        let registration_id: u32 = 1 + i; // small, within the 14-bit valid range
+        let mut recipient_store =
+            InMemSignalProtocolStore::new(recipient_identity, registration_id)
+                .map_err(|e| e.to_string())?;
+        let bundle = build_recipient_bundle(&mut recipient_store, registration_id, &mut rng)?;
+        process_prekey_bundle(
+            &address,
+            &mut sender_store.session_store,
+            &mut sender_store.identity_store,
+            &bundle,
+            SystemTime::now(),
+            &mut rng,
+        )
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+
+        addresses.push(address);
+        recipient_privates.push(recipient_identity.private_key().serialize().to_vec());
+    }
+
+    // Load each session record (now carrying the remote registration id).
+    let mut sessions: Vec<SessionRecord> = Vec::with_capacity(addresses.len());
+    for address in &addresses {
+        let record = sender_store
+            .session_store
+            .load_session(address)
+            .now_or_never()
+            .expect("sync")
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("no session for {address}"))?;
+        sessions.push(record);
+    }
+    let address_refs: Vec<&ProtocolAddress> = addresses.iter().collect();
+    let session_refs: Vec<&SessionRecord> = sessions.iter().collect();
+
+    let sent = sealed_sender_multi_recipient_encrypt(
+        &address_refs,
+        &session_refs,
+        std::iter::empty::<ServiceId>(),
+        &usmc,
+        &sender_store.identity_store,
+        &mut rng,
+    )
+    .now_or_never()
+    .expect("sync")
+    .map_err(|e| e.to_string())?;
+
+    // Fan out each recipient's ReceivedMessage from the SentMessage.
+    let parsed = SealedSenderV2SentMessage::parse(&sent).map_err(|e| e.to_string())?;
+    let mut out_recipients = Vec::with_capacity(addresses.len());
+    for (idx, address) in addresses.iter().enumerate() {
+        let service_id = ServiceId::parse_from_service_id_string(address.name())
+            .ok_or_else(|| format!("bad service id {address}"))?;
+        let recipient = parsed
+            .recipients
+            .get(&service_id)
+            .ok_or_else(|| format!("recipient {address} not in sent message"))?;
+        let parts = parsed.received_message_parts_for_recipient(recipient);
+        let received: Vec<u8> = parts.as_ref().concat();
+        out_recipients.push(json!({
+            "identity_private": hex(&recipient_privates[idx]),
+            "received": hex(&received),
+        }));
+    }
+
+    Ok(json!({ "recipients": out_recipients }))
+}
+
+/// Builds a full PQXDH PreKeyBundle (signed pre-key + Kyber pre-key + one-time
+/// pre-key) for a recipient store, registering the keys so process_prekey_bundle
+/// can later resolve them. A trimmed version of the session.create-prekey-bundle
+/// flow, returning the typed PreKeyBundle directly for in-harness use.
+fn build_recipient_bundle<R: rand::Rng + rand::CryptoRng>(
+    store: &mut InMemSignalProtocolStore,
+    registration_id: u32,
+    rng: &mut R,
+) -> Result<PreKeyBundle, String> {
+    let signed_pre_key_pair = KeyPair::generate(rng);
+    let kyber_pre_key_pair = kem::KeyPair::generate(kem::KeyType::Kyber1024, rng);
+    let pre_key_pair = KeyPair::generate(rng);
+
+    let identity = store
+        .get_identity_key_pair()
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+
+    let signed_pre_key_public = signed_pre_key_pair.public_key.serialize();
+    let signed_pre_key_signature = identity
+        .private_key()
+        .calculate_signature(&signed_pre_key_public, rng)
+        .map_err(|e| e.to_string())?;
+    let kyber_pre_key_public = kyber_pre_key_pair.public_key.serialize();
+    let kyber_pre_key_signature = identity
+        .private_key()
+        .calculate_signature(&kyber_pre_key_public, rng)
+        .map_err(|e| e.to_string())?;
+
+    let signed_pre_key_id: u32 = 1;
+    let kyber_pre_key_id: u32 = 1;
+    let pre_key_id: u32 = 1;
+
+    store
+        .save_signed_pre_key(
+            signed_pre_key_id.into(),
+            &SignedPreKeyRecord::new(
+                SignedPreKeyId::from(signed_pre_key_id),
+                Timestamp::from_epoch_millis(42),
+                &signed_pre_key_pair,
+                &signed_pre_key_signature,
+            ),
+        )
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+    store
+        .save_kyber_pre_key(
+            kyber_pre_key_id.into(),
+            &KyberPreKeyRecord::new(
+                KyberPreKeyId::from(kyber_pre_key_id),
+                Timestamp::from_epoch_millis(43),
+                &kyber_pre_key_pair,
+                &kyber_pre_key_signature,
+            ),
+        )
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+    store
+        .save_pre_key(
+            pre_key_id.into(),
+            &PreKeyRecord::new(PreKeyId::from(pre_key_id), &pre_key_pair),
+        )
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+
+    PreKeyBundle::new(
+        registration_id,
+        fixed_device_id(),
+        Some((PreKeyId::from(pre_key_id), pre_key_pair.public_key)),
+        SignedPreKeyId::from(signed_pre_key_id),
+        signed_pre_key_pair.public_key,
+        signed_pre_key_signature.to_vec(),
+        KyberPreKeyId::from(kyber_pre_key_id),
+        kyber_pre_key_pair.public_key.clone(),
+        kyber_pre_key_signature.to_vec(),
+        *identity.identity_key(),
+    )
+    .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // interop: line-delimited JSON-RPC over stdin/stdout
 // ---------------------------------------------------------------------------
 
@@ -1278,6 +1640,11 @@ fn dispatch(method: &str, params: &Value) -> Result<Value, String> {
         "session.process-bundle-as-alice" => session_process_bundle_as_alice(params),
         "session.encrypt" => session_encrypt(params),
         "session.decrypt" => session_decrypt(params),
+
+        // --- sealed sender (v1 + v2 seal; unseal handles v1 + v2) ---
+        "sealed.seal-v1" => sealed_seal_v1(params),
+        "sealed.seal-v2" => sealed_seal_v2(params),
+        "sealed.unseal" => sealed_unseal(params),
 
         // message.parse_sender_key: { serialized: hex } -> { distribution_id, chain_id, iteration }
         "message.parse_sender_key" => {
