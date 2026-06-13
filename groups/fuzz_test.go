@@ -69,6 +69,50 @@ func FuzzDeserializeSenderKeyDistributionMessage(f *testing.F) {
 	})
 }
 
+// FuzzGroupDecrypt checks that group Decrypt never panics on arbitrary bytes,
+// against a receiver store that already holds a real sender-key chain. Most
+// inputs fail to parse or authenticate; the contract is only that no input
+// crashes the decryptor.
+func FuzzGroupDecrypt(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte{byte((protocol.SenderKeyCurrentVersion << 4) | protocol.SenderKeyCurrentVersion)})
+
+	ctx := context.Background()
+	sender := fuzzAddress(f)
+
+	// A receiver store provisioned with a genuine chain, plus a genuine
+	// ciphertext for that chain as the richest seed.
+	senderStore := inmem.NewSenderKeyStore()
+	receiverStore := inmem.NewSenderKeyStore()
+	if skdm, err := CreateSenderKeyDistributionMessage(ctx, sender, distributionID(), senderStore, rand.Reader); err == nil {
+		if err := ProcessSenderKeyDistributionMessage(ctx, sender, skdm, receiverStore); err == nil {
+			if skm, err := Encrypt(ctx, sender, distributionID(), []byte("seed"), senderStore, rand.Reader); err == nil {
+				f.Add(skm.Serialized())
+			}
+		}
+	}
+
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		// Must not panic regardless of input shape. The result is discarded; a
+		// fresh receiver store per call keeps each input independent.
+		store := inmem.NewSenderKeyStore()
+		seedReceiver(ctx, sender, store)
+		_, _ = Decrypt(ctx, sender, data, store)
+	})
+}
+
+// seedReceiver best-effort provisions store with a real sender-key chain for
+// sender, so fuzzed Decrypt inputs can reach the post-parse logic. Failures are
+// ignored: the fuzz contract (no panic) holds with or without a chain present.
+func seedReceiver(ctx context.Context, sender address.ProtocolAddress, store *inmem.SenderKeyStore) {
+	tmp := inmem.NewSenderKeyStore()
+	skdm, err := CreateSenderKeyDistributionMessage(ctx, sender, distributionID(), tmp, rand.Reader)
+	if err != nil {
+		return
+	}
+	_ = ProcessSenderKeyDistributionMessage(ctx, sender, skdm, store)
+}
+
 // validRecordBytes produces the serialized bytes of a single-state record for
 // use as a fuzz seed; returns nil on setup failure (seeds are best-effort).
 func validRecordBytes(f *testing.F) []byte {

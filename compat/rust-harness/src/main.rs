@@ -16,7 +16,7 @@
 //!     never a crash, and the loop continues.
 //!
 //! Domains for `gen-vectors`: `curve`, `kem-decaps`, `hkdf`, `messages`,
-//! `fingerprint`.
+//! `fingerprint`, `groups`.
 //!
 //! The behavioral contract is the v0.91.0 upstream source. Most domains call
 //! the genuine public API directly. The `hkdf` domain reproduces the chain
@@ -39,13 +39,14 @@ use serde_json::{json, Value};
 use sha2::Sha256;
 
 use libsignal_protocol::{
-    kem, message_decrypt, message_encrypt, process_prekey_bundle, CiphertextMessage,
-    CiphertextMessageType, DeviceId, Fingerprint, GenericSignedPreKey, IdentityKey,
-    IdentityKeyPair, IdentityKeyStore, InMemSignalProtocolStore, KeyPair, KyberPayload,
-    KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyBundle, PreKeyId, PreKeyRecord,
-    PreKeySignalMessage, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey,
-    SenderKeyDistributionMessage, SenderKeyMessage, SignalMessage, SignedPreKeyId,
-    SignedPreKeyRecord, SignedPreKeyStore, Timestamp,
+    create_sender_key_distribution_message, group_decrypt, group_encrypt, kem, message_decrypt,
+    message_encrypt, process_prekey_bundle, process_sender_key_distribution_message,
+    CiphertextMessage, CiphertextMessageType, DeviceId, Fingerprint, GenericSignedPreKey,
+    IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemSenderKeyStore, InMemSignalProtocolStore,
+    KeyPair, KyberPayload, KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyBundle,
+    PreKeyId, PreKeyRecord, PreKeySignalMessage, PreKeyStore, PrivateKey, ProtocolAddress,
+    PublicKey, SenderKeyDistributionMessage, SenderKeyMessage, SenderKeyRecord, SignalMessage,
+    SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore, Timestamp,
 };
 
 /// Fixed seed for the deterministic CSPRNG. Recorded in every batch header so a
@@ -147,6 +148,7 @@ const N_HKDF_PER_SUBDOMAIN: u32 = 24;
 const N_MESSAGES_SETS: u32 = 8;
 const N_FINGERPRINT_PAIRS: u32 = 8;
 const N_SESSIONS_NO_OPK: u32 = 24;
+const N_GROUPS_SETS: u32 = 8;
 
 fn gen_vectors(domain: &str) -> Result<(), String> {
     // Every batch carries a {domain, seed} header. Most domains add a flat
@@ -176,10 +178,13 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
         "sessions" => {
             obj.insert("cases".into(), Value::Array(gen_sessions()));
         }
+        "groups" => {
+            obj.insert("cases".into(), Value::Array(gen_groups()));
+        }
         other => {
             return Err(format!(
                 "unknown domain {other:?}; \
-                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions"
+                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups"
             ));
         }
     };
@@ -661,6 +666,81 @@ fn gen_sessions() -> Vec<Value> {
     cases
 }
 
+/// groups domain: golden bytes for the full sender-key cipher. Each case
+/// provisions a chain via create_sender_key_distribution_message (seeded, so
+/// reproducible), records the *pre-encrypt* sending record, then group_encrypts
+/// a plaintext through a recorded 64-byte signing nonce.
+///
+/// The Go consumer asserts both directions byte-for-byte:
+///   - load `sender_record`, encrypt `plaintext` with `encrypt_nonce`, and the
+///     resulting SenderKeyMessage must equal `skm`;
+///   - process `skdm` into a fresh receiver store and group_decrypt `skm`, and
+///     the plaintext must equal `plaintext`.
+///
+/// `sender_record` is the serialized SenderKeyRecord *before* encryption (the
+/// chain at iteration 0), so Go starts from the identical state; `chain_id` and
+/// the signing keys are surfaced redundantly for cross-checking.
+fn gen_groups() -> Vec<Value> {
+    use rand_core::RngCore;
+    let mut rng = seeded_rng();
+    let mut cases = Vec::new();
+
+    for i in 0..N_GROUPS_SETS {
+        let sender_name = format!("+1555100{:04}", i);
+        let device_id = DeviceId::new(1).expect("device id");
+        let sender = ProtocolAddress::new(sender_name.clone(), device_id);
+
+        let mut dist = [0u8; 16];
+        rng.fill_bytes(&mut dist);
+        let distribution_id = uuid::Uuid::from_bytes(dist);
+
+        // Provision the chain (seeded -> reproducible) and capture both the SKDM
+        // (receiver side) and the serialized sending record (pre-encrypt).
+        let mut sender_store = InMemSenderKeyStore::new();
+        let skdm = block_on(create_sender_key_distribution_message(
+            &sender,
+            distribution_id,
+            &mut sender_store,
+            &mut rng,
+        ))
+        .expect("create distribution");
+        let pre_encrypt_record =
+            load_record_bytes(&mut sender_store, &sender, distribution_id).expect("record present");
+        let chain_id = skdm.chain_id().expect("chain id");
+        let signing_public = skdm.signing_key().expect("signing key");
+
+        // Encrypt through a recorded nonce so the SKM signature is reproducible.
+        let plaintext: Vec<u8> = (0..(16 + i as usize))
+            .map(|j| (0x5Au8) ^ (i as u8) ^ (j as u8))
+            .collect();
+        let mut nonce = [0u8; 64];
+        rng.fill_bytes(&mut nonce);
+        let skm = block_on(group_encrypt(
+            &mut sender_store,
+            &sender,
+            distribution_id,
+            &plaintext,
+            &mut FixedRng::new(nonce.to_vec()),
+        ))
+        .expect("group encrypt");
+
+        cases.push(json!({
+            "sender_name": sender_name,
+            "sender_device": 1,
+            "distribution_id": hex(&dist),
+            "chain_id": chain_id,
+            "signing_public": hex(&signing_public.serialize()),
+            "skdm": hex(skdm.serialized()),
+            "sender_record": hex(&pre_encrypt_record),
+            "plaintext": hex(&plaintext),
+            "encrypt_nonce": hex(&nonce),
+            "skm": hex(skm.serialized()),
+        }));
+    }
+
+    cases
+}
+
 // ---------------------------------------------------------------------------
 // session interop: stateful PQXDH/Double Ratchet sessions over JSON-RPC
 // ---------------------------------------------------------------------------
@@ -1013,6 +1093,24 @@ fn session_decrypt(params: &Value) -> Result<Value, String> {
     })
 }
 
+/// Reads the serialized SenderKeyRecord for (sender, distribution_id) out of the
+/// store. Used by gen_groups to snapshot the pre-encrypt sending state.
+fn load_record_bytes(
+    store: &mut InMemSenderKeyStore,
+    sender: &ProtocolAddress,
+    distribution_id: uuid::Uuid,
+) -> Option<Vec<u8>> {
+    let record = block_on(
+        <InMemSenderKeyStore as libsignal_protocol::SenderKeyStore>::load_sender_key(
+            store,
+            sender,
+            distribution_id,
+        ),
+    )
+    .expect("load sender key");
+    record.map(|r| r.serialize().expect("serialize record"))
+}
+
 // ---------------------------------------------------------------------------
 // interop: line-delimited JSON-RPC over stdin/stdout
 // ---------------------------------------------------------------------------
@@ -1139,7 +1237,174 @@ fn dispatch(method: &str, params: &Value) -> Result<Value, String> {
             }))
         }
 
+        // group.create_distribution: { sender, device, distribution_id }
+        //   -> { skdm, record }
+        // Provisions a fresh sender-key chain in a one-shot store and returns the
+        // distribution message plus the serialized SenderKeyRecord. The Go side
+        // threads `record` back into group.encrypt; this keeps the harness
+        // stateless (no record state survives between RPC lines).
+        "group.create_distribution" => {
+            let sender = param_address(params)?;
+            let distribution_id = param_uuid(params, "distribution_id")?;
+            let mut store = InMemSenderKeyStore::new();
+            let mut rng = seeded_rng();
+            let skdm = block_on(create_sender_key_distribution_message(
+                &sender,
+                distribution_id,
+                &mut store,
+                &mut rng,
+            ))
+            .map_err(|e| e.to_string())?;
+            let record = load_record_hex(&mut store, &sender, distribution_id)?;
+            Ok(json!({ "skdm": hex(skdm.serialized()), "record": record }))
+        }
+
+        // group.process_distribution: { sender, device, skdm, record? }
+        //   -> { record }
+        // Processes an SKDM into a store seeded from `record` (empty when absent)
+        // and returns the updated serialized record.
+        "group.process_distribution" => {
+            let sender = param_address(params)?;
+            let skdm_bytes = param_bytes(params, "skdm")?;
+            let skdm = SenderKeyDistributionMessage::try_from(skdm_bytes.as_slice())
+                .map_err(|e| e.to_string())?;
+            let distribution_id = skdm.distribution_id().map_err(|e| e.to_string())?;
+            let mut store = store_from_param(params, &sender, distribution_id)?;
+            block_on(process_sender_key_distribution_message(
+                &sender, &skdm, &mut store,
+            ))
+            .map_err(|e| e.to_string())?;
+            let record = load_record_hex(&mut store, &sender, distribution_id)?;
+            Ok(json!({ "record": record }))
+        }
+
+        // group.encrypt: { sender, device, distribution_id, record, plaintext }
+        //   -> { skm, record }
+        // Encrypts plaintext on the chain held in `record`, returning the signed
+        // SenderKeyMessage and the advanced record.
+        "group.encrypt" => {
+            let sender = param_address(params)?;
+            let distribution_id = param_uuid(params, "distribution_id")?;
+            let plaintext = param_bytes(params, "plaintext")?;
+            let mut store = store_from_param(params, &sender, distribution_id)?;
+            let mut rng = seeded_rng();
+            let skm = block_on(group_encrypt(
+                &mut store,
+                &sender,
+                distribution_id,
+                &plaintext,
+                &mut rng,
+            ))
+            .map_err(|e| e.to_string())?;
+            let record = load_record_hex(&mut store, &sender, distribution_id)?;
+            Ok(json!({ "skm": hex(skm.serialized()), "record": record }))
+        }
+
+        // group.decrypt: { sender, device, distribution_id, record, skm }
+        //   -> { plaintext, record }
+        // Decrypts a SenderKeyMessage against the chain in `record`, returning the
+        // plaintext and the advanced record.
+        "group.decrypt" => {
+            let sender = param_address(params)?;
+            let distribution_id = param_uuid(params, "distribution_id")?;
+            let skm_bytes = param_bytes(params, "skm")?;
+            let mut store = store_from_param(params, &sender, distribution_id)?;
+            let plaintext = block_on(group_decrypt(&skm_bytes, &mut store, &sender))
+                .map_err(|e| e.to_string())?;
+            let record = load_record_hex(&mut store, &sender, distribution_id)?;
+            Ok(json!({ "plaintext": hex(&plaintext), "record": record }))
+        }
+
         other => Err(format!("unknown method {other:?}")),
+    }
+}
+
+/// Blocks on a future to completion using a minimal single-thread executor. The
+/// upstream group functions are async over the (synchronous) in-memory store, so
+/// the RPC dispatch drives them to completion here.
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    futures::executor::block_on(fut)
+}
+
+/// Builds a ProtocolAddress from `sender` (name) and `device` (1..=255) params.
+fn param_address(params: &Value) -> Result<ProtocolAddress, String> {
+    let name = params
+        .get("sender")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "missing string param \"sender\"".to_string())?;
+    let device = params
+        .get("device")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "missing integer param \"device\"".to_string())?;
+    let device: u8 = device
+        .try_into()
+        .map_err(|_| format!("device {device} out of range 1..=255"))?;
+    let device_id = DeviceId::new(device).map_err(|e| e.to_string())?;
+    Ok(ProtocolAddress::new(name.to_string(), device_id))
+}
+
+/// Extracts a UUID param given as either a 32-hex-digit string (no dashes; the
+/// raw 16 bytes) or a standard dashed UUID string. The Go side sends raw hex.
+fn param_uuid(params: &Value, name: &str) -> Result<uuid::Uuid, String> {
+    let s = params
+        .get(name)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("missing string param {name:?}"))?;
+    if let Ok(bytes) = hex::decode(s) {
+        if bytes.len() == 16 {
+            let mut raw = [0u8; 16];
+            raw.copy_from_slice(&bytes);
+            return Ok(uuid::Uuid::from_bytes(raw));
+        }
+    }
+    uuid::Uuid::parse_str(s).map_err(|e| format!("param {name:?} is not a uuid: {e}"))
+}
+
+/// Builds an InMemSenderKeyStore pre-loaded with the SenderKeyRecord carried in
+/// the optional `record` hex param (empty store when absent). Lets the RPCs stay
+/// stateless by threading the record through each call.
+fn store_from_param(
+    params: &Value,
+    sender: &ProtocolAddress,
+    distribution_id: uuid::Uuid,
+) -> Result<InMemSenderKeyStore, String> {
+    let mut store = InMemSenderKeyStore::new();
+    if let Some(s) = params.get("record").and_then(Value::as_str) {
+        if !s.is_empty() {
+            let bytes = hex::decode(s).map_err(|e| format!("param \"record\" is not hex: {e}"))?;
+            let record = SenderKeyRecord::deserialize(&bytes).map_err(|e| e.to_string())?;
+            block_on(
+                <InMemSenderKeyStore as libsignal_protocol::SenderKeyStore>::store_sender_key(
+                    &mut store,
+                    sender,
+                    distribution_id,
+                    &record,
+                ),
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(store)
+}
+
+/// Reads the SenderKeyRecord for (sender, distribution_id) out of the store and
+/// returns its serialized hex (empty string when the store has no record).
+fn load_record_hex(
+    store: &mut InMemSenderKeyStore,
+    sender: &ProtocolAddress,
+    distribution_id: uuid::Uuid,
+) -> Result<String, String> {
+    let record = block_on(
+        <InMemSenderKeyStore as libsignal_protocol::SenderKeyStore>::load_sender_key(
+            store,
+            sender,
+            distribution_id,
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    match record {
+        Some(r) => Ok(hex(&r.serialize().map_err(|e| e.to_string())?)),
+        None => Ok(String::new()),
     }
 }
 

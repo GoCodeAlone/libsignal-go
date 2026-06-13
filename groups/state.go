@@ -20,6 +20,16 @@ const (
 	// evicts the oldest. Mirrors consts::MAX_SENDER_KEY_STATES.
 	MaxSenderKeyStates = 5
 
+	// MaxForwardJumps bounds how far ahead of its current iteration a received
+	// sender-key message may be before it is rejected; a larger gap would force
+	// an unbounded chain-key ratchet on decrypt. Mirrors consts::MAX_FORWARD_JUMPS.
+	MaxForwardJumps = 25_000
+
+	// maxMessageKeys bounds the per-state cache of skipped sender message keys,
+	// which keeps out-of-order messages within the window decryptable. Mirrors
+	// consts::MAX_MESSAGE_KEYS.
+	maxMessageKeys = 2000
+
 	// senderKeyMessageVersion is the current SenderKey message version. Stored as
 	// message_version in the state; a stored 0 is interpreted as this value, the
 	// first SenderKey version. Mirrors SENDERKEY_MESSAGE_CURRENT_VERSION (3).
@@ -94,12 +104,14 @@ func (c SenderChainKey) senderMessageKey() (senderMessageKey, error) {
 }
 
 // senderMessageKey is the symmetric material for a single sender-key message:
-// an AES IV and cipher key derived from a seed, tagged with its iteration.
-// Mirrors SenderMessageKey in sender_keys.rs. It is unexported because the
-// per-message key derivation is consumed only by the (later) group cipher; the
-// chain-key ratchet step itself is exercised via SenderChainKey.
+// an AES IV and cipher key derived from a seed, tagged with its iteration. The
+// seed is retained so a skipped key can be cached and re-derived later. Mirrors
+// SenderMessageKey in sender_keys.rs. It is unexported because the per-message
+// key derivation is consumed only by the group cipher in this package; the
+// chain-key ratchet step itself is exercised via the exported SenderChainKey.
 type senderMessageKey struct {
 	iteration uint32
+	seed      []byte
 	iv        []byte
 	cipherKey []byte
 }
@@ -113,6 +125,7 @@ func newSenderMessageKey(iteration uint32, seed []byte) (senderMessageKey, error
 	}
 	return senderMessageKey{
 		iteration: iteration,
+		seed:      append([]byte(nil), seed...),
 		iv:        derived[:ivLen],
 		cipherKey: derived[ivLen : ivLen+cipherKeyLen],
 	}, nil
@@ -126,6 +139,15 @@ func (m senderMessageKey) IV() []byte { return m.iv }
 
 // CipherKey returns the 32-byte AES cipher key. The slice aliases internal state.
 func (m senderMessageKey) CipherKey() []byte { return m.cipherKey }
+
+// asProtobuf converts to the stored representation (iteration + seed; the IV
+// and cipher key are re-derived from the seed on load).
+func (m senderMessageKey) asProtobuf() *proto.SenderKeyStateStructure_SenderMessageKey {
+	return &proto.SenderKeyStateStructure_SenderMessageKey{
+		Iteration: m.iteration,
+		Seed:      append([]byte(nil), m.seed...),
+	}
+}
 
 // SenderKeyState wraps a single sender-key state proto: a chain key plus a
 // signing key (public always, private only for the local sender). Mirrors
@@ -188,6 +210,40 @@ func (s *SenderKeyState) ChainKey() (SenderChainKey, bool) {
 		return SenderChainKey{}, false
 	}
 	return newSenderChainKey(sck.GetIteration(), sck.GetSeed()), true
+}
+
+// setSenderChainKey replaces the current sender chain key. Mirrors
+// SenderKeyState::set_sender_chain_key.
+func (s *SenderKeyState) setSenderChainKey(ck SenderChainKey) {
+	s.state.SenderChainKey = &proto.SenderKeyStateStructure_SenderChainKey{
+		Iteration: ck.iteration,
+		Seed:      append([]byte(nil), ck.chainKey...),
+	}
+}
+
+// addSenderMessageKey caches a skipped message key, evicting the oldest once the
+// cache exceeds maxMessageKeys. Mirrors SenderKeyState::add_sender_message_key.
+func (s *SenderKeyState) addSenderMessageKey(smk senderMessageKey) {
+	s.state.SenderMessageKeys = append(s.state.SenderMessageKeys, smk.asProtobuf())
+	for len(s.state.SenderMessageKeys) > maxMessageKeys {
+		s.state.SenderMessageKeys = s.state.SenderMessageKeys[1:]
+	}
+}
+
+// removeSenderMessageKey pops the cached message key for iteration, or ok=false
+// if none is cached. Mirrors SenderKeyState::remove_sender_message_key.
+func (s *SenderKeyState) removeSenderMessageKey(iteration uint32) (senderMessageKey, bool) {
+	for i, smk := range s.state.SenderMessageKeys {
+		if smk.GetIteration() == iteration {
+			out, err := newSenderMessageKey(smk.GetIteration(), smk.GetSeed())
+			s.state.SenderMessageKeys = append(s.state.SenderMessageKeys[:i], s.state.SenderMessageKeys[i+1:]...)
+			if err != nil {
+				return senderMessageKey{}, false
+			}
+			return out, true
+		}
+	}
+	return senderMessageKey{}, false
 }
 
 // SigningKeyPublic returns the signing public key, or ok=false if it is missing
