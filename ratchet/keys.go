@@ -209,17 +209,29 @@ func (k InitialKeys) Format(f fmt.State, _ rune) {
 
 // DeriveInitialKeys runs the PQXDH master-secret key schedule
 // (ratchet.rs derive_keys): it assembles the master secret
-// (0xFF*32 || DH1..DH4 || kyber_shared_secret), then
+// (0xFF*32 || DH1 || DH2 || DH3 [|| DH4] || kyber_shared_secret), then
 // HKDF-SHA256(ikm=secret, salt=nil, info=pqxdhInfo) -> 32B root || 32B chain ||
-// 32B pqr. The four DH agreements must already be in the upstream order.
+// 32B pqr. The DH agreements must already be in the upstream order.
+//
+// DH4 (= ephemeral × one-time prekey) is OPTIONAL: the one-time prekey is not
+// always present in a PreKeyBundle. When it is absent, callers pass an empty
+// dh4 and it is omitted from the master secret, exactly as upstream conditions
+// the fourth agreement on Some(one_time_prekey) (rust/protocol/src/pqxdh.rs:220
+// for the initiator and :360 for the recipient). DH1..DH3 are always present.
 func DeriveInitialKeys(dh1, dh2, dh3, dh4, kyberSharedSecret []byte) (InitialKeys, error) {
-	// Each X25519 agreement must be exactly agreementLen bytes. Upstream's typed
-	// keys guarantee this; here the inputs are []byte, so validate it explicitly
-	// rather than silently producing a wrong-length master secret.
-	for i, dh := range [4][]byte{dh1, dh2, dh3, dh4} {
+	// DH1..DH3 are mandatory and must each be exactly agreementLen bytes.
+	// Upstream's typed keys guarantee this; here the inputs are []byte, so
+	// validate it explicitly rather than silently producing a wrong-length
+	// master secret.
+	for i, dh := range [3][]byte{dh1, dh2, dh3} {
 		if len(dh) != agreementLen {
 			return InitialKeys{}, fmt.Errorf("ratchet: DH%d agreement must be %d bytes, got %d", i+1, agreementLen, len(dh))
 		}
+	}
+	// DH4 is optional: empty means no one-time prekey (omit it from the secret);
+	// otherwise it must be a full agreement. Any other length is a bug.
+	if len(dh4) != 0 && len(dh4) != agreementLen {
+		return InitialKeys{}, fmt.Errorf("ratchet: DH4 agreement must be %d bytes or absent, got %d", agreementLen, len(dh4))
 	}
 	secret := pqxdhSecret(dh1, dh2, dh3, dh4, kyberSharedSecret)
 	okm, err := hkdfSplit(secret, nil, pqxdhInfo, rootKeyLen+chainKeyLen+32)

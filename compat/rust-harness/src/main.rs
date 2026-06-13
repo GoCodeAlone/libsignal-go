@@ -24,18 +24,28 @@
 //! `pub(crate)` upstream, against the same pinned crate versions (`hkdf`,
 //! `hmac`, `sha2`) so the bytes match upstream exactly.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
+use std::time::SystemTime;
 
+use futures_util::FutureExt;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use rand::SeedableRng;
+use rand::rngs::OsRng;
+use rand::{Rng as _, SeedableRng, TryRngCore as _};
 use rand_chacha::ChaCha20Rng;
 use serde_json::{json, Value};
 use sha2::Sha256;
 
 use libsignal_protocol::{
-    kem, Fingerprint, IdentityKey, KeyPair, KyberPayload, PreKeySignalMessage, PrivateKey,
-    PublicKey, SenderKeyDistributionMessage, SenderKeyMessage, SignalMessage,
+    kem, message_decrypt, message_encrypt, process_prekey_bundle, CiphertextMessage,
+    CiphertextMessageType, DeviceId, Fingerprint, GenericSignedPreKey, IdentityKey,
+    IdentityKeyPair, IdentityKeyStore, InMemSignalProtocolStore, KeyPair, KyberPayload,
+    KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyBundle, PreKeyId, PreKeyRecord,
+    PreKeySignalMessage, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey,
+    SenderKeyDistributionMessage, SenderKeyMessage, SignalMessage, SignedPreKeyId,
+    SignedPreKeyRecord, SignedPreKeyStore, Timestamp,
 };
 
 /// Fixed seed for the deterministic CSPRNG. Recorded in every batch header so a
@@ -136,6 +146,7 @@ const N_KEM: u32 = 128;
 const N_HKDF_PER_SUBDOMAIN: u32 = 24;
 const N_MESSAGES_SETS: u32 = 8;
 const N_FINGERPRINT_PAIRS: u32 = 8;
+const N_SESSIONS_NO_OPK: u32 = 24;
 
 fn gen_vectors(domain: &str) -> Result<(), String> {
     // Every batch carries a {domain, seed} header. Most domains add a flat
@@ -162,9 +173,13 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
         "fingerprint" => {
             obj.insert("cases".into(), Value::Array(gen_fingerprint()));
         }
+        "sessions" => {
+            obj.insert("cases".into(), Value::Array(gen_sessions()));
+        }
         other => {
             return Err(format!(
-                "unknown domain {other:?}; expected curve|kem-decaps|hkdf|messages|fingerprint"
+                "unknown domain {other:?}; \
+                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions"
             ));
         }
     };
@@ -579,6 +594,425 @@ fn gen_fingerprint() -> Vec<Value> {
     cases
 }
 
+/// sessions domain: PQXDH master-secret KATs for the NO-one-time-prekey case
+/// (DH4 absent). The committed hkdf.json `pqxdh-secret` sub-domain only covers
+/// the with-DH4 path; this fills that gap so the Go ratchet's DH4-optional
+/// assembly is vector-locked against upstream without needing a live harness.
+///
+/// Each case omits the fourth agreement, exactly as upstream conditions it on
+/// `Some(one_time_prekey)` (pqxdh.rs pqxdh_initiate / pqxdh_accept). The master
+/// secret is therefore 0xFF*32 || DH1 || DH2 || DH3 || kyber_ss — one agreement
+/// (32 bytes) shorter than the with-DH4 secret — then HKDF-expanded with the
+/// X25519/Kyber label into 32B root || 32B chain || 32B pqr.
+fn gen_sessions() -> Vec<Value> {
+    let mut rng = seeded_rng();
+    let mut cases = Vec::new();
+
+    for _ in 0..N_SESSIONS_NO_OPK {
+        let identity = KeyPair::generate(&mut rng); // alice identity
+        let base = KeyPair::generate(&mut rng); // alice base/ephemeral
+        let their_identity = KeyPair::generate(&mut rng);
+        let their_signed_pre = KeyPair::generate(&mut rng);
+        let their_kyber = kem::KeyPair::generate(kem::KeyType::Kyber1024, &mut rng);
+
+        // X3DH agreements WITHOUT the one-time pre-key (no DH4), upstream order.
+        let dh1 = identity
+            .private_key
+            .calculate_agreement(&their_signed_pre.public_key)
+            .expect("dh1");
+        let dh2 = base
+            .private_key
+            .calculate_agreement(&their_identity.public_key)
+            .expect("dh2");
+        let dh3 = base
+            .private_key
+            .calculate_agreement(&their_signed_pre.public_key)
+            .expect("dh3");
+        let (kyber_ss, kyber_ct) = their_kyber.public_key.encapsulate(&mut rng).expect("kyber");
+
+        let mut secret = Vec::with_capacity(32 * 5);
+        secret.extend_from_slice(&[0xFFu8; 32]); // discontinuity bytes
+        secret.extend_from_slice(&dh1);
+        secret.extend_from_slice(&dh2);
+        secret.extend_from_slice(&dh3);
+        // No DH4 — the one-time pre-key is absent.
+        secret.extend_from_slice(kyber_ss.as_ref());
+
+        let label = b"WhisperText_X25519_SHA-256_CRYSTALS-KYBER-1024";
+        let mut okm = [0u8; 96];
+        Hkdf::<Sha256>::new(None, &secret)
+            .expand(label, &mut okm)
+            .expect("valid output length");
+
+        cases.push(json!({
+            "case": "pqxdh-secret-no-one-time-prekey",
+            "secret_input": hex(&secret),
+            "dh1": hex(&dh1),
+            "dh2": hex(&dh2),
+            "dh3": hex(&dh3),
+            "kyber_shared_secret": hex(&kyber_ss),
+            "kyber_ciphertext": hex(&kyber_ct),
+            "root_key": hex(&okm[0..32]),
+            "chain_key": hex(&okm[32..64]),
+            "pqr_key": hex(&okm[64..96]),
+        }));
+    }
+
+    cases
+}
+
+// ---------------------------------------------------------------------------
+// session interop: stateful PQXDH/Double Ratchet sessions over JSON-RPC
+// ---------------------------------------------------------------------------
+//
+// The session methods drive the genuine upstream session API
+// (process_prekey_bundle / message_encrypt / message_decrypt, all v0.91.0) so
+// the pure-Go port can be checked role-for-role against it. Each party is an
+// upstream InMemSignalProtocolStore kept alive across calls in a per-process
+// registry keyed by an opaque string handle, so Go can run a whole conversation
+// (handshake, then many encrypt/decrypt turns) against the same Rust peer.
+//
+// v0.91.0 sessions are PQXDH/v4 only (X3DH/v3 is removed upstream — see
+// session.rs "X3DH no longer supported"), and process_prekey_bundle takes no
+// UsePQRatchet flag at this tag, so sessions negotiate without the SPQR
+// post-quantum ratchet (Stage 1): the resulting v4 SignalMessages carry no
+// pq_ratchet bytes. The InMem stores never actually await, so the async API is
+// driven synchronously via `now_or_never().expect("sync")`, matching upstream's
+// own test support module.
+
+thread_local! {
+    /// Per-handle session state for the interop loop. Single-threaded: the loop
+    /// reads one request at a time, so a RefCell is sufficient and there is no
+    /// cross-thread sharing.
+    static STORES: RefCell<HashMap<String, InMemSignalProtocolStore>> = RefCell::new(HashMap::new());
+}
+
+/// The interop CSPRNG. Session key generation and Kyber encapsulation must use a
+/// real CSPRNG (the handshake is not vector-locked here — agreement is checked
+/// by decrypting, not by byte equality), so this draws from the OS. rand 0.9's
+/// fallible OsRng is wrapped via `unwrap_err()` into the infallible RngCore +
+/// CryptoRng the libsignal session APIs require, matching upstream test support.
+fn interop_rng() -> rand_core::UnwrapErr<OsRng> {
+    OsRng.unwrap_err()
+}
+
+/// Fixed device id for every interop address. Conversations are pairwise and the
+/// address name carries identity, so a constant device id keeps addresses simple
+/// and deterministic.
+fn fixed_device_id() -> DeviceId {
+    DeviceId::new(1).expect("1 is a valid device id")
+}
+
+fn protocol_address(name: &str) -> ProtocolAddress {
+    ProtocolAddress::new(name.to_string(), fixed_device_id())
+}
+
+/// Runs a fresh store through a closure and returns its result. Creating a store
+/// generates a new identity key pair and registration id.
+fn with_new_store<T>(handle: &str, f: impl FnOnce(&mut InMemSignalProtocolStore) -> T) -> T {
+    let mut rng = interop_rng();
+    let identity = IdentityKeyPair::generate(&mut rng);
+    // Valid registration ids fit in 14 bits.
+    let registration_id: u32 = (rng.random::<u16>() & 0x3FFF) as u32;
+    let mut store = InMemSignalProtocolStore::new(identity, registration_id).expect("create store");
+    let out = f(&mut store);
+    STORES.with(|m| {
+        m.borrow_mut().insert(handle.to_string(), store);
+    });
+    out
+}
+
+/// Borrows an existing store mutably for the duration of `f`. Errors if the
+/// handle is unknown so a misuse surfaces as an RPC error, not a panic.
+fn with_store<T>(
+    handle: &str,
+    f: impl FnOnce(&mut InMemSignalProtocolStore) -> Result<T, String>,
+) -> Result<T, String> {
+    STORES.with(|m| {
+        let mut map = m.borrow_mut();
+        let store = map
+            .get_mut(handle)
+            .ok_or_else(|| format!("unknown session handle {handle:?}"))?;
+        f(store)
+    })
+}
+
+/// session.create-prekey-bundle — generate a recipient's (Bob's) key material in
+/// a fresh store under `handle`, register the pre-keys, and return the bundle
+/// fields the initiator needs. `with_one_time` controls whether a one-time
+/// pre-key is included (its absence exercises the optional-DH4 PQXDH path).
+///
+/// Params: { handle: str, with_one_time: bool }
+/// Result: { registration_id, device_id, signed_pre_key_id, signed_pre_key_public,
+///           signed_pre_key_signature, kyber_pre_key_id, kyber_pre_key_public,
+///           kyber_pre_key_signature, identity_key, pre_key_id?, pre_key_public? }
+fn session_create_prekey_bundle(params: &Value) -> Result<Value, String> {
+    let handle = param_str(params, "handle")?;
+    let with_one_time = params
+        .get("with_one_time")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
+    with_new_store(&handle, |store| {
+        let mut rng = interop_rng();
+
+        let signed_pre_key_pair = KeyPair::generate(&mut rng);
+        let kyber_pre_key_pair = kem::KeyPair::generate(kem::KeyType::Kyber1024, &mut rng);
+
+        let identity = store
+            .get_identity_key_pair()
+            .now_or_never()
+            .expect("sync")
+            .map_err(|e| e.to_string())?;
+        let registration_id = store
+            .get_local_registration_id()
+            .now_or_never()
+            .expect("sync")
+            .map_err(|e| e.to_string())?;
+
+        let signed_pre_key_public = signed_pre_key_pair.public_key.serialize();
+        let signed_pre_key_signature = identity
+            .private_key()
+            .calculate_signature(&signed_pre_key_public, &mut rng)
+            .map_err(|e| e.to_string())?;
+
+        let kyber_pre_key_public = kyber_pre_key_pair.public_key.serialize();
+        let kyber_pre_key_signature = identity
+            .private_key()
+            .calculate_signature(&kyber_pre_key_public, &mut rng)
+            .map_err(|e| e.to_string())?;
+
+        // Deterministic small ids; the conversation is pairwise so collisions
+        // across handles do not matter (each handle owns its own store).
+        let signed_pre_key_id: u32 = 1;
+        let kyber_pre_key_id: u32 = 1;
+        let pre_key_id: u32 = 1;
+
+        // Register signed + kyber pre-keys.
+        store
+            .save_signed_pre_key(
+                signed_pre_key_id.into(),
+                &SignedPreKeyRecord::new(
+                    SignedPreKeyId::from(signed_pre_key_id),
+                    Timestamp::from_epoch_millis(42),
+                    &signed_pre_key_pair,
+                    &signed_pre_key_signature,
+                ),
+            )
+            .now_or_never()
+            .expect("sync")
+            .map_err(|e| e.to_string())?;
+        store
+            .save_kyber_pre_key(
+                kyber_pre_key_id.into(),
+                &KyberPreKeyRecord::new(
+                    KyberPreKeyId::from(kyber_pre_key_id),
+                    Timestamp::from_epoch_millis(43),
+                    &kyber_pre_key_pair,
+                    &kyber_pre_key_signature,
+                ),
+            )
+            .now_or_never()
+            .expect("sync")
+            .map_err(|e| e.to_string())?;
+
+        let mut result = json!({
+            "registration_id": registration_id,
+            "device_id": u32::from(fixed_device_id()),
+            "signed_pre_key_id": signed_pre_key_id,
+            "signed_pre_key_public": hex(&signed_pre_key_pair.public_key.serialize()),
+            "signed_pre_key_signature": hex(&signed_pre_key_signature),
+            "kyber_pre_key_id": kyber_pre_key_id,
+            "kyber_pre_key_public": hex(&kyber_pre_key_pair.public_key.serialize()),
+            "kyber_pre_key_signature": hex(&kyber_pre_key_signature),
+            "identity_key": hex(&identity.identity_key().serialize()),
+        });
+        let obj = result.as_object_mut().expect("object");
+
+        if with_one_time {
+            let pre_key_pair = KeyPair::generate(&mut rng);
+            store
+                .save_pre_key(
+                    pre_key_id.into(),
+                    &PreKeyRecord::new(PreKeyId::from(pre_key_id), &pre_key_pair),
+                )
+                .now_or_never()
+                .expect("sync")
+                .map_err(|e| e.to_string())?;
+            obj.insert("pre_key_id".into(), json!(pre_key_id));
+            obj.insert(
+                "pre_key_public".into(),
+                json!(hex(&pre_key_pair.public_key.serialize())),
+            );
+        }
+
+        Ok(result)
+    })
+}
+
+/// session.process-bundle-as-alice — the initiator side. Creates a fresh Alice
+/// store under `handle`, assembles a PreKeyBundle from the supplied fields (a
+/// peer/Bob's, produced by Go or by session.create-prekey-bundle), and runs
+/// process_prekey_bundle so the store holds an unacknowledged Alice session
+/// toward `remote_name`.
+///
+/// Params: { handle, remote_name, registration_id, device_id, identity_key,
+///           signed_pre_key_id, signed_pre_key_public, signed_pre_key_signature,
+///           kyber_pre_key_id, kyber_pre_key_public, kyber_pre_key_signature,
+///           pre_key_id?, pre_key_public? }
+/// Result: { ok: true }
+fn session_process_bundle_as_alice(params: &Value) -> Result<Value, String> {
+    let handle = param_str(params, "handle")?;
+    let remote_name = param_str(params, "remote_name")?;
+    let bundle = build_prekey_bundle(params)?;
+
+    // Create Alice's store (fresh identity + registration id), then run the
+    // handshake against it. process_prekey_bundle needs the store's own identity,
+    // which is generated when the store is created.
+    with_new_store(&handle, |store| {
+        let mut rng = interop_rng();
+        let remote = protocol_address(&remote_name);
+        // process_prekey_bundle at v0.91.0 takes no local_address.
+        process_prekey_bundle(
+            &remote,
+            &mut store.session_store,
+            &mut store.identity_store,
+            &bundle,
+            SystemTime::now(),
+            &mut rng,
+        )
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true }))
+    })
+}
+
+/// Builds an upstream PreKeyBundle from the JSON fields of a peer's bundle.
+fn build_prekey_bundle(params: &Value) -> Result<PreKeyBundle, String> {
+    let registration_id = param_u32(params, "registration_id")?;
+    let identity_key =
+        IdentityKey::decode(&param_bytes(params, "identity_key")?).map_err(|e| e.to_string())?;
+    let signed_pre_key_id = param_u32(params, "signed_pre_key_id")?;
+    let signed_pre_key_public =
+        PublicKey::deserialize(&param_bytes(params, "signed_pre_key_public")?)
+            .map_err(|e| e.to_string())?;
+    let signed_pre_key_signature = param_bytes(params, "signed_pre_key_signature")?;
+    let kyber_pre_key_id = param_u32(params, "kyber_pre_key_id")?;
+    let kyber_pre_key_public =
+        kem::PublicKey::deserialize(&param_bytes(params, "kyber_pre_key_public")?)
+            .map_err(|e| e.to_string())?;
+    let kyber_pre_key_signature = param_bytes(params, "kyber_pre_key_signature")?;
+
+    // The one-time pre-key is optional (absent exercises the no-DH4 path).
+    let pre_key = match (params.get("pre_key_id"), params.get("pre_key_public")) {
+        (Some(id), Some(_)) if !id.is_null() => {
+            let id = param_u32(params, "pre_key_id")?;
+            let public = PublicKey::deserialize(&param_bytes(params, "pre_key_public")?)
+                .map_err(|e| e.to_string())?;
+            Some((PreKeyId::from(id), public))
+        }
+        _ => None,
+    };
+
+    PreKeyBundle::new(
+        registration_id,
+        fixed_device_id(),
+        pre_key,
+        SignedPreKeyId::from(signed_pre_key_id),
+        signed_pre_key_public,
+        signed_pre_key_signature,
+        KyberPreKeyId::from(kyber_pre_key_id),
+        kyber_pre_key_public,
+        kyber_pre_key_signature,
+        identity_key,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// session.encrypt — encrypt `plaintext` from `handle`'s store toward
+/// `remote_name` via the genuine message_encrypt. Returns the ciphertext type
+/// (2 = Whisper/SignalMessage, 3 = PreKey/PreKeySignalMessage) and the
+/// serialized bytes for the peer to decrypt.
+///
+/// Params: { handle, remote_name, plaintext: hex }
+/// Result: { type: u8, serialized: hex }
+fn session_encrypt(params: &Value) -> Result<Value, String> {
+    let handle = param_str(params, "handle")?;
+    let remote_name = param_str(params, "remote_name")?;
+    let plaintext = param_bytes(params, "plaintext")?;
+
+    with_store(&handle, |store| {
+        let mut rng = interop_rng();
+        let remote = protocol_address(&remote_name);
+        let local = protocol_address("self");
+        let ct = message_encrypt(
+            &plaintext,
+            &remote,
+            &local,
+            &mut store.session_store,
+            &mut store.identity_store,
+            SystemTime::now(),
+            &mut rng,
+        )
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+        Ok(json!({
+            "type": ct.message_type() as u8,
+            "serialized": hex(ct.serialize()),
+        }))
+    })
+}
+
+/// session.decrypt — decrypt a ciphertext into `handle`'s store from
+/// `remote_name`. `type` selects the wire form (2 = Whisper, 3 = PreKey);
+/// message_decrypt establishes the session from a PreKey message if needed.
+///
+/// Params: { handle, remote_name, type: u8, serialized: hex }
+/// Result: { plaintext: hex }
+fn session_decrypt(params: &Value) -> Result<Value, String> {
+    let handle = param_str(params, "handle")?;
+    let remote_name = param_str(params, "remote_name")?;
+    let msg_type = param_u32(params, "type")? as u8;
+    let serialized = param_bytes(params, "serialized")?;
+
+    let ciphertext = match CiphertextMessageType::try_from(msg_type) {
+        Ok(CiphertextMessageType::Whisper) => CiphertextMessage::SignalMessage(
+            SignalMessage::try_from(serialized.as_slice()).map_err(|e| e.to_string())?,
+        ),
+        Ok(CiphertextMessageType::PreKey) => CiphertextMessage::PreKeySignalMessage(
+            PreKeySignalMessage::try_from(serialized.as_slice()).map_err(|e| e.to_string())?,
+        ),
+        _ => {
+            return Err(format!(
+                "session.decrypt: unsupported ciphertext type {msg_type}"
+            ))
+        }
+    };
+
+    with_store(&handle, |store| {
+        let mut rng = interop_rng();
+        let remote = protocol_address(&remote_name);
+        let local = protocol_address("self");
+        let plaintext = message_decrypt(
+            &ciphertext,
+            &remote,
+            &local,
+            &mut store.session_store,
+            &mut store.identity_store,
+            &mut store.pre_key_store,
+            &store.signed_pre_key_store,
+            &mut store.kyber_pre_key_store,
+            &mut rng,
+        )
+        .now_or_never()
+        .expect("sync")
+        .map_err(|e| e.to_string())?;
+        Ok(json!({ "plaintext": hex(&plaintext) }))
+    })
+}
+
 // ---------------------------------------------------------------------------
 // interop: line-delimited JSON-RPC over stdin/stdout
 // ---------------------------------------------------------------------------
@@ -687,6 +1121,12 @@ fn dispatch(method: &str, params: &Value) -> Result<Value, String> {
             Ok(json!({ "shared_secret": hex(&ss) }))
         }
 
+        // --- session methods (stateful; keyed by `handle`) ---
+        "session.create-prekey-bundle" => session_create_prekey_bundle(params),
+        "session.process-bundle-as-alice" => session_process_bundle_as_alice(params),
+        "session.encrypt" => session_encrypt(params),
+        "session.decrypt" => session_decrypt(params),
+
         // message.parse_sender_key: { serialized: hex } -> { distribution_id, chain_id, iteration }
         "message.parse_sender_key" => {
             let serialized = param_bytes(params, "serialized")?;
@@ -710,4 +1150,22 @@ fn param_bytes(params: &Value, name: &str) -> Result<Vec<u8>, String> {
         .and_then(Value::as_str)
         .ok_or_else(|| format!("missing string param {name:?}"))?;
     hex::decode(s).map_err(|e| format!("param {name:?} is not valid hex: {e}"))
+}
+
+/// Extracts a named plain-string parameter (not hex-decoded).
+fn param_str(params: &Value, name: &str) -> Result<String, String> {
+    params
+        .get(name)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| format!("missing string param {name:?}"))
+}
+
+/// Extracts a named unsigned-integer parameter.
+fn param_u32(params: &Value, name: &str) -> Result<u32, String> {
+    let n = params
+        .get(name)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("missing integer param {name:?}"))?;
+    u32::try_from(n).map_err(|_| format!("param {name:?} out of u32 range: {n}"))
 }

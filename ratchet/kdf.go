@@ -48,12 +48,16 @@ const (
 // pqxdhSecret assembles the PQXDH master secret in the upstream byte order
 // (ratchet.rs initialize_alice_session / initialize_bob_session):
 //
-//	0xFF*32 || DH1 || DH2 || DH3 || DH4 || kyber_shared_secret
+//	0xFF*32 || DH1 || DH2 || DH3 [|| DH4] || kyber_shared_secret
 //
-// The leading 32 0xFF bytes are the "discontinuity bytes". Each DH input is a
-// 32-byte X25519 agreement; kyberSharedSecret is the KEM shared secret. The
-// caller supplies the four agreements already computed in the upstream order
+// The leading 32 0xFF bytes are the "discontinuity bytes". Each present DH input
+// is a 32-byte X25519 agreement; kyberSharedSecret is the KEM shared secret. The
+// caller supplies the agreements already computed in the upstream order
 // (DH1 = IK_a x SPK_b, DH2 = EK_a x IK_b, DH3 = EK_a x SPK_b, DH4 = EK_a x OPK_b).
+// DH4 is OPTIONAL: when the recipient has no one-time prekey, dh4 is empty and
+// contributes nothing, so the secret is shorter by exactly agreementLen bytes,
+// matching upstream's conditional fourth agreement (pqxdh.rs:220 initiator,
+// :360 recipient). Validation of the dh4 length lives in DeriveInitialKeys.
 func pqxdhSecret(dh1, dh2, dh3, dh4, kyberSharedSecret []byte) []byte {
 	out := make([]byte, 0, discontinuityLen+4*agreementLen+len(kyberSharedSecret))
 	for i := 0; i < discontinuityLen; i++ {

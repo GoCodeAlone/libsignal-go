@@ -297,3 +297,37 @@ Scope: no manifest change (manifest does not name the tag; T29's Stage-2
 selection rule unaffected).
 Evidence: curl of `ratchet.rs` at both tags → V0 vs V1 (lead-verified);
 `cargo fetch` failure on v0.91.1 (implementer-2).
+
+### Backport 2026-06-12: SessionStore interface lives in session/ (import-cycle fix)
+
+Cause: design package layout put all six store interfaces in stores/ while
+SessionStore's signature references *session.SessionRecord — stores/ imports
+session/, so session/builder.go (T17) importing stores/ = import cycle
+(discovered at T17 implementation; `go build` rejects).
+Change: SessionStore interface moves into session/ (as session.Store); the
+other five interfaces stay in stores/ (none reference session types —
+SenderKeyStore uses the accepted opaque []byte record). stores/ becomes a
+leaf package; stores/inmem keeps all impls (impl package may import both).
+Scope: no manifest change (no task/PR change; package-layout clarification
+within the design's stores/session rows).
+Evidence: `go build ./session/` import-cycle error with the literal layout;
+Go idiom (consumer-side interface placement) resolves without adapters.
+
+### Backport 2026-06-13: T19 v3 decrypt-fixture descope (upstream-generated)
+
+Cause: T19 item 3 planned "Go decrypts upstream-generated v3 SignalMessage given
+session state." Evidence (implementer-2, verified): v0.91.0 cannot PRODUCE a v3
+session or v3 message — X3DH fully removed: SessionState::new only ever passes
+v4 (ratchet.rs:98,161); decrypt actively rejects v3 prekey messages
+("X3DH no longer supported", session.rs:107-115); session_cipher_legacy is a
+private mod. So no upstream v0.91.0 harness can emit a v3 fixture.
+Change: descope the UPSTREAM-GENERATED v3 decrypt fixture from T19 (lead call
+per T19's own STOP-condition). Go's v3 SignalMessage DESERIALIZE capability
+(version floor =3, built in T9) is retained and unit-tested Go-side; only the
+cross-impl upstream fixture is dropped, documented in compat/README.md + the
+sessions vector doc. v3 decrypt-compat against a pre-v0.91.0 tag is a future
+item if ever needed.
+Scope: no manifest change (T19 stays one task in PR6; only one verification
+sub-item's source changes — upstream-fixture → Go-unit-test). Matches design's
+"v3 = decrypt/state compat ONLY" scope row.
+Evidence: pqxdh.rs / ratchet.rs:98,161 / session.rs:107-115 / lib.rs:43 (cited).

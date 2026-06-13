@@ -24,7 +24,6 @@ import (
 
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
-	"github.com/GoCodeAlone/libsignal-go/session"
 )
 
 // Direction is the role an identity is being checked for when deciding trust.
@@ -145,20 +144,11 @@ type KyberPreKeyStore interface {
 	MarkKyberPreKeyUsed(ctx context.Context, kyberPreKeyID uint32, ecPreKeyID uint32, baseKey curve.PublicKey) error
 }
 
-// SessionStore stores the Double Ratchet session record for each remote
-// address. It mirrors upstream's SessionStore trait.
-type SessionStore interface {
-	// LoadSession returns the session record for address, or (nil, nil) when no
-	// session is stored — mirroring upstream's Option<SessionRecord> return,
-	// where a nil record means "absent" rather than an error.
-	LoadSession(ctx context.Context, address address.ProtocolAddress) (*session.SessionRecord, error)
-
-	// StoreSession sets the session record for address, overwriting any existing
-	// entry. record must be non-nil; implementations reject a nil record, since a
-	// nil store would be indistinguishable from the (nil, nil) "absent" result of
-	// LoadSession.
-	StoreSession(ctx context.Context, address address.ProtocolAddress, record *session.SessionRecord) error
-}
+// The session store interface lives in the session package as session.Store:
+// it is the only store that references *session.SessionRecord, so keeping it
+// here would make stores/ import session/ and form an import cycle. stores/ is
+// therefore a leaf package; stores/inmem provides InMemSessionStore, which
+// satisfies session.Store.
 
 // SenderKeyStore stores sender-key records for group messaging, keyed by the
 // (sender, distributionID) pair so a single sender may hold multiple keys. It

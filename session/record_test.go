@@ -442,3 +442,65 @@ func TestNewSessionStateNilStructure(t *testing.T) {
 		t.Fatalf("RemoteRegistrationID() = %d, want 7", got)
 	}
 }
+
+// TestPendingPreKeyMessageContract pins the documented contract of
+// PendingPreKeyMessage: the EC pending pre-key record is the SOLE gate (absent =>
+// ok=false), the Kyber pending record is OPTIONAL and read opportunistically,
+// and the one-time pre-key id round-trips iff it was set. This mirrors upstream
+// SessionState::unacknowledged_pre_key_message_items, which keys only on
+// pending_pre_key and treats pending_kyber_pre_key as an Option.
+func TestPendingPreKeyMessageContract(t *testing.T) {
+	base := genKeyPair(t, 60)
+
+	// (a) No pending state at all -> ok=false.
+	if _, ok := NewEmptySessionState().PendingPreKeyMessage(); ok {
+		t.Fatal("empty state: PendingPreKeyMessage ok=true, want false")
+	}
+
+	// (b) EC pending present, NO Kyber record -> ok=true, Kyber fields absent.
+	// (The EC record alone is sufficient; Kyber is optional per the contract.)
+	stNoKyber := NewEmptySessionState()
+	stNoKyber.SetUnacknowledgedPreKeyMessage(nil, 55, base.PublicKey, 1234)
+	got, ok := stNoKyber.PendingPreKeyMessage()
+	if !ok {
+		t.Fatal("EC-only pending: ok=false, want true (Kyber is optional)")
+	}
+	if got.KyberPreKeyID != nil || len(got.KyberCiphertext) != 0 {
+		t.Fatalf("EC-only pending: Kyber fields set (id=%v, ct len=%d), want absent", got.KyberPreKeyID, len(got.KyberCiphertext))
+	}
+	if got.PreKeyID != nil {
+		t.Fatalf("EC-only pending without one-time prekey: PreKeyID=%v, want nil", *got.PreKeyID)
+	}
+	if got.SignedPreKeyID != 55 || got.UnixSeconds != 1234 || !bytes.Equal(got.BaseKey, base.PublicKey.Serialize()) {
+		t.Fatalf("EC-only pending: fields mismatch: %+v", got)
+	}
+
+	// (c) EC + Kyber both present, WITH a one-time pre-key id -> all fields filled.
+	stFull := NewEmptySessionState()
+	oneTimeID := uint32(77)
+	stFull.SetUnacknowledgedPreKeyMessage(&oneTimeID, 55, base.PublicKey, 1234)
+	stFull.SetKyberCiphertext([]byte("kyber-ct"))
+	if err := stFull.SetUnacknowledgedKyberPreKeyID(66); err != nil {
+		t.Fatalf("SetUnacknowledgedKyberPreKeyID: %v", err)
+	}
+	gotFull, ok := stFull.PendingPreKeyMessage()
+	if !ok {
+		t.Fatal("full pending: ok=false, want true")
+	}
+	if gotFull.PreKeyID == nil || *gotFull.PreKeyID != oneTimeID {
+		t.Fatalf("full pending: PreKeyID=%v, want %d", gotFull.PreKeyID, oneTimeID)
+	}
+	if gotFull.KyberPreKeyID == nil || *gotFull.KyberPreKeyID != 66 {
+		t.Fatalf("full pending: KyberPreKeyID=%v, want 66", gotFull.KyberPreKeyID)
+	}
+	if !bytes.Equal(gotFull.KyberCiphertext, []byte("kyber-ct")) {
+		t.Fatalf("full pending: KyberCiphertext=%q, want %q", gotFull.KyberCiphertext, "kyber-ct")
+	}
+
+	// (d) Clearing the EC record makes it absent again even if a Kyber record
+	// lingers — the EC record is the gate.
+	stFull.ClearUnacknowledgedPreKeyMessage()
+	if _, ok := stFull.PendingPreKeyMessage(); ok {
+		t.Fatal("after clear: ok=true, want false")
+	}
+}

@@ -26,6 +26,7 @@ This directory covers layer 1.
 | `vectors/hkdf.json` | Double Ratchet KDFs | `{seed, subdomains:{chain-key, message-keys, root-key, pqxdh-secret}}` |
 | `vectors/messages.json` | wire message golden bytes | `{seed, cases:[…]}` |
 | `vectors/fingerprint.json` | display + scannable fingerprints | `{seed, cases:[…]}` |
+| `vectors/sessions.json` | PQXDH master secret, **no one-time pre-key** (DH4 absent) | `{seed, cases:[…]}` |
 
 Each curve signing case and each `sender_key_message` case records the 64-byte
 XEdDSA signing `nonce`, so the Go consumer can reproduce the signature
@@ -48,7 +49,7 @@ See `rust-harness/README.md` for full harness/toolchain details.
 # from compat/
 cargo build --release --manifest-path rust-harness/Cargo.toml
 BIN=rust-harness/target/release/rust-harness
-for d in curve kem-decaps hkdf messages fingerprint; do
+for d in curve kem-decaps hkdf messages fingerprint sessions; do
   "$BIN" gen-vectors "$d" > "vectors/$d.json"
 done
 ```
@@ -83,3 +84,45 @@ files.
 - **fingerprint** — the Go fingerprint package does not exist yet (**T25**); the
   vectors are asserted to parse with cases present, with a `TODO(T25)` consuming
   test.
+- **sessions** — the PQXDH master-secret derivation for the **no-one-time-prekey**
+  case (DH4 absent): Go re-derives the secret as `0xFF*32 ‖ DH1 ‖ DH2 ‖ DH3 ‖
+  kyber_ss` (one agreement shorter than the with-DH4 secret) and
+  `ratchet.DeriveInitialKeys` reproduces upstream's root/chain/pqr. This is the
+  committed-vector counterpart to the live no-OPK session interop; the
+  `hkdf.json` `pqxdh-secret` sub-domain only covers the with-DH4 path.
+
+## Live interop (`session_interop_test.go`, `interop` build tag)
+
+The session interop suite drives a full PQXDH / Double Ratchet conversation
+between the Go session layer and the genuine upstream session API (v0.91.0) over
+the harness JSON-RPC loop. It covers both role assignments (Go=Alice/Rust=Bob
+and Rust=Alice/Go=Bob), with **and** without a one-time pre-key (the no-OPK case
+is the cross-impl proof of the optional-DH4 path), a 20-message exchange with
+out-of-order + skipped-key delivery, and a serialize→reload→continue persistence
+check. Run it with the harness binary:
+
+```sh
+cargo build --release --manifest-path rust-harness/Cargo.toml
+COMPAT_HARNESS_BIN=$(pwd)/rust-harness/target/release/rust-harness \
+  go test ./ -tags=interop -run Session -v   # from compat/
+```
+
+### Documented limitation: no v3 session decrypt vectors
+
+v0.91.0 sessions are **PQXDH/v4 only**. X3DH/v3 is removed upstream: every
+session is created at `CIPHERTEXT_MESSAGE_CURRENT_VERSION` (4), and the decrypt
+path rejects a v3 PreKey message outright (`"X3DH no longer supported"`). The
+public API therefore cannot *produce* a v3 session or a v3 `SignalMessage`, so a
+v3-format decrypt-vector suite is not achievable against the pinned upstream.
+The v4 interop above is the full session surface v0.91.0 supports. Sessions also
+negotiate **without** the SPQR post-quantum ratchet at this tag
+(`process_prekey_bundle` takes no `UsePQRatchet` flag), so every `SignalMessage`
+carries `pq_ratchet` absent and `pq_ratchet_state` empty.
+
+The Go port's own v3 decrypt-compat capability (the version-floor=3 deserialize
+path) is unit-tested directly — see
+`protocol/signal_message_test.go:TestSignalMessageVersionFloorAndCeiling`, which
+deserializes a v3-version-byte `SignalMessage` and asserts it is accepted (with
+v2 below the floor and v5 above the ceiling rejected). That capability exists and
+is covered; it simply cannot be *cross-checked* against the v0.91.0 harness,
+because the harness's upstream cannot emit a v3 message.

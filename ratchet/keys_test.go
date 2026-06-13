@@ -225,9 +225,12 @@ func TestDeriveInitialKeys(t *testing.T) {
 	t.Logf("pqxdh-secret: %d cases == upstream (secret_input re-derived from dh1..dh4+kyber_ss)", len(v.Subdomains.PqxdhSecret))
 }
 
-// TestDeriveInitialKeysRejectsBadDHLength confirms each DH agreement input must
-// be exactly agreementLen bytes; a wrong-length DH in any of the four positions
-// is rejected rather than silently producing a wrong master secret.
+// TestDeriveInitialKeysRejectsBadDHLength confirms the DH-agreement length
+// contract: DH1..DH3 are mandatory and must each be exactly agreementLen bytes;
+// DH4 is optional, so absent (empty/nil) is accepted but any non-zero,
+// non-agreementLen length is rejected. A wrong-length DH must error rather than
+// silently producing a wrong master secret. DH4 optionality mirrors upstream's
+// conditional fourth agreement (rust/protocol/src/pqxdh.rs:220 / :360).
 func TestDeriveInitialKeysRejectsBadDHLength(t *testing.T) {
 	good := bytes.Repeat([]byte{0x01}, agreementLen)
 	kyberSS := bytes.Repeat([]byte{0x02}, 32)
@@ -239,7 +242,9 @@ func TestDeriveInitialKeysRejectsBadDHLength(t *testing.T) {
 
 	short := bytes.Repeat([]byte{0x01}, agreementLen-1)
 	long := bytes.Repeat([]byte{0x01}, agreementLen+1)
-	for pos := 0; pos < 4; pos++ {
+
+	// DH1..DH3 are mandatory: short, long, AND absent are all rejected.
+	for pos := 0; pos < 3; pos++ {
 		for _, bad := range [][]byte{short, long, nil} {
 			dhs := [4][]byte{good, good, good, good}
 			dhs[pos] = bad
@@ -247,6 +252,73 @@ func TestDeriveInitialKeysRejectsBadDHLength(t *testing.T) {
 				t.Fatalf("DH%d len %d accepted; want error", pos+1, len(bad))
 			}
 		}
+	}
+
+	// DH4 is optional: short/long are rejected, but empty and nil are accepted
+	// (no one-time prekey present).
+	for _, bad := range [][]byte{short, long} {
+		if _, err := DeriveInitialKeys(good, good, good, bad, kyberSS); err == nil {
+			t.Fatalf("DH4 len %d accepted; want error", len(bad))
+		}
+	}
+	for _, absent := range [][]byte{nil, {}} {
+		if _, err := DeriveInitialKeys(good, good, good, absent, kyberSS); err != nil {
+			t.Fatalf("DH4 absent (len %d) rejected; want accepted: %v", len(absent), err)
+		}
+	}
+}
+
+// TestDeriveInitialKeysOmitsAbsentDH4 is a ratchet-level KAT for the
+// no-one-time-prekey path: when DH4 is absent the master secret must be exactly
+// 0xFF*32 || DH1 || DH2 || DH3 || kyber_ss (no DH4), i.e. agreementLen bytes
+// shorter than the with-DH4 secret, and derivation must still succeed. This
+// mirrors upstream omitting the fourth agreement when there is no one-time
+// prekey (rust/protocol/src/pqxdh.rs:220 initiator, :360 recipient).
+//
+// NOTE: the committed hkdf.json vectors only cover the with-DH4 case, so this
+// asserts byte layout directly. A cross-impl no-one-time-prekey compat vector is
+// tracked as a Task 19 follow-up (gen-vectors `sessions` domain).
+func TestDeriveInitialKeysOmitsAbsentDH4(t *testing.T) {
+	dh1 := bytes.Repeat([]byte{0x11}, agreementLen)
+	dh2 := bytes.Repeat([]byte{0x22}, agreementLen)
+	dh3 := bytes.Repeat([]byte{0x33}, agreementLen)
+	dh4 := bytes.Repeat([]byte{0x44}, agreementLen)
+	kyberSS := bytes.Repeat([]byte{0x55}, 32)
+
+	withDH4 := PQXDHSecret(dh1, dh2, dh3, dh4, kyberSS)
+	noDH4 := PQXDHSecret(dh1, dh2, dh3, nil, kyberSS)
+
+	// The no-DH4 secret is exactly agreementLen bytes shorter.
+	if len(withDH4)-len(noDH4) != agreementLen {
+		t.Fatalf("with-DH4 secret %d B, no-DH4 secret %d B; want diff %d",
+			len(withDH4), len(noDH4), agreementLen)
+	}
+
+	// Assert the exact expected byte layout: 0xFF*32 || DH1 || DH2 || DH3 || kyber_ss.
+	want := make([]byte, 0, discontinuityLen+3*agreementLen+len(kyberSS))
+	want = append(want, bytes.Repeat([]byte{0xFF}, discontinuityLen)...)
+	want = append(want, dh1...)
+	want = append(want, dh2...)
+	want = append(want, dh3...)
+	want = append(want, kyberSS...)
+	if !bytes.Equal(noDH4, want) {
+		t.Fatalf("no-DH4 secret layout mismatch\n go   %x\n want %x", noDH4, want)
+	}
+
+	// Derivation must succeed and stay distinct from the with-DH4 keys.
+	noDH4Keys, err := DeriveInitialKeys(dh1, dh2, dh3, nil, kyberSS)
+	if err != nil {
+		t.Fatalf("DeriveInitialKeys (no DH4): %v", err)
+	}
+	withDH4Keys, err := DeriveInitialKeys(dh1, dh2, dh3, dh4, kyberSS)
+	if err != nil {
+		t.Fatalf("DeriveInitialKeys (with DH4): %v", err)
+	}
+	if bytes.Equal(noDH4Keys.RootKey.Key(), withDH4Keys.RootKey.Key()) {
+		t.Fatal("no-DH4 and with-DH4 root keys are equal; DH4 was not actually omitted")
+	}
+	if noDH4Keys.ChainKey.Index() != 0 {
+		t.Fatalf("no-DH4 initial chain index = %d, want 0", noDH4Keys.ChainKey.Index())
 	}
 }
 

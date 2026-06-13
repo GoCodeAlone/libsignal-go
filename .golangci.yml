@@ -42,11 +42,31 @@ linters:
       - path: session/record_test\.go
         linters:
           - gosec
-      # SessionState / SessionRecord are named to match the task spec and the
-      # upstream libsignal types (SessionState, SessionRecord). The session.
-      # prefix "stutter" is intentional and worth the parity; suppress revive's
-      # stutter warning for these two exported types.
+      # SessionState / SessionRecord / SessionStore are named to match the task
+      # spec and the upstream libsignal types. The session. prefix "stutter" is
+      # intentional and worth the parity; suppress revive's stutter warning for
+      # these exported types.
       - path: session/
-        text: 'stutters; consider calling this (Record|State)'
+        text: 'stutters; consider calling this (Record|State|Store)'
         linters:
           - revive
+      # session/state.go converts the signed-pre-key id to int32 for the proto
+      # field, matching upstream's `signed_pre_key_id as i32` (storage.proto
+      # types the field as int32). The id is a small server-assigned counter, so
+      # gosec's G115 overflow flag is a false positive here.
+      - path: session/state\.go
+        text: 'G115'
+        linters:
+          - gosec
+      # session/cipher.go converts the session version to uint8 (always 3/4) and
+      # the pending-pre-key Unix timestamp to int64 for time.Unix — both bounded,
+      # matching upstream's casts. G115 is a false positive.
+      - path: session/cipher\.go
+        text: 'G115'
+        linters:
+          - gosec
+      # session/cipher_test.go forges a message with the session version cast to
+      # uint8 (bounded) — false-positive G115 in a test, as in record_test.go.
+      - path: session/cipher_test\.go
+        linters:
+          - gosec

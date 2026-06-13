@@ -258,15 +258,16 @@ func (s *KyberPreKeyStore) AllKyberPreKeyIDs() []uint32 {
 	return ids
 }
 
-// SessionStore is the in-memory stores.SessionStore. Records are stored by
-// value: store and load each round-trip the record through its serialized form
-// (session.SessionRecord has no Clone method), so the store never shares a
+// SessionStore is the in-memory session.Store (the session store interface
+// lives in the session package, not stores/, to avoid a session<->stores import
+// cycle). Records are stored by value: store and load each round-trip the
+// record through its serialized form, so the store never shares a
 // *SessionRecord with a caller and a caller cannot mutate stored state.
 type SessionStore struct {
 	sessions map[address.ProtocolAddress][]byte
 }
 
-var _ stores.SessionStore = (*SessionStore)(nil)
+var _ session.Store = (*SessionStore)(nil)
 
 // NewSessionStore creates an empty session store.
 func NewSessionStore() *SessionStore {
