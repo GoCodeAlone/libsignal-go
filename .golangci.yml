@@ -36,6 +36,12 @@ linters:
       - path: ratchet/keys_test\.go
         linters:
           - gosec
+      # The sender-key derivation KAT reads the committed compat/vectors/groups.json
+      # fixture by a fixed relative path (G304) — same controlled-fixture pattern
+      # as the ratchet KAT above; a false positive in a test.
+      - path: groups/derivation_kat_test\.go
+        linters:
+          - gosec
       # The session tests build proto fields from small, deterministic loop
       # counters; gosec G115 flags the int->uint32 / uint32->byte conversions as
       # overflow, but every value is provably bounded — false positive in a test.

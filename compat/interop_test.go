@@ -43,9 +43,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
+	"github.com/GoCodeAlone/libsignal-go/groups"
 	"github.com/GoCodeAlone/libsignal-go/kem"
 	"github.com/GoCodeAlone/libsignal-go/protocol"
+	"github.com/GoCodeAlone/libsignal-go/stores/inmem"
 )
 
 // callTimeout bounds a single request/response exchange. The watchdog guards
@@ -444,5 +447,141 @@ func TestInteropUnknownMethod(t *testing.T) {
 	h.ok("ping", nil, &res)
 	if !res.Pong {
 		t.Fatal("harness did not survive an unknown-method request")
+	}
+}
+
+// groupSender is the fixed (name, device) pair used by the group interop tests.
+func groupSender(t *testing.T) (address.ProtocolAddress, string) {
+	t.Helper()
+	const name = "+14155557000"
+	dev, err := address.NewDeviceID(1)
+	if err != nil {
+		t.Fatalf("device id: %v", err)
+	}
+	return address.NewProtocolAddress(name, dev), name
+}
+
+// TestInteropGroupGoToRust checks the Go-encrypts -> Rust-decrypts direction:
+// Go creates a sender-key chain, distributes it, and encrypts; the harness
+// processes the SKDM into its own (record-threaded) store and decrypts the SKM,
+// recovering the byte-identical plaintext.
+func TestInteropGroupGoToRust(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	sender, senderName := groupSender(t)
+
+	var distID [16]byte
+	if _, err := rand.Read(distID[:]); err != nil {
+		t.Fatalf("rand distID: %v", err)
+	}
+
+	senderStore := inmem.NewSenderKeyStore()
+	skdm, err := groups.CreateSenderKeyDistributionMessage(ctx, sender, distID, senderStore, rand.Reader)
+	if err != nil {
+		t.Fatalf("Go create distribution: %v", err)
+	}
+
+	// Rust processes the Go SKDM, building its receiver record.
+	var proc struct {
+		Record string `json:"record"`
+	}
+	h.ok("group.process_distribution", map[string]any{
+		"sender": senderName,
+		"device": 1,
+		"skdm":   hx(skdm.Serialized()),
+	}, &proc)
+	if proc.Record == "" {
+		t.Fatal("Rust returned an empty record after processing the SKDM")
+	}
+
+	for i := 0; i < 4; i++ {
+		plaintext := []byte(fmt.Sprintf("go->rust group message %d", i))
+		skm, err := groups.Encrypt(ctx, sender, distID, plaintext, senderStore, rand.Reader)
+		if err != nil {
+			t.Fatalf("case %d: Go encrypt: %v", i, err)
+		}
+
+		// Rust decrypts against its receiver record (threaded back in each call).
+		var dec struct {
+			Plaintext string `json:"plaintext"`
+			Record    string `json:"record"`
+		}
+		h.ok("group.decrypt", map[string]any{
+			"sender":          senderName,
+			"device":          1,
+			"distribution_id": hx(distID[:]),
+			"record":          proc.Record,
+			"skm":             hx(skm.Serialized()),
+		}, &dec)
+		if !bytes.Equal(mustDecodeHex(t, dec.Plaintext), plaintext) {
+			t.Fatalf("case %d: Rust decrypted %s, want %x", i, dec.Plaintext, plaintext)
+		}
+		proc.Record = dec.Record // advance the receiver state for the next message
+	}
+}
+
+// TestInteropGroupRustToGo checks the Rust-encrypts -> Go-decrypts direction:
+// the harness creates a chain and distributes it, Go processes the SKDM, then
+// the harness encrypts (record-threaded) and Go decrypts the SKM, recovering the
+// byte-identical plaintext.
+func TestInteropGroupRustToGo(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	sender, senderName := groupSender(t)
+
+	var distID [16]byte
+	if _, err := rand.Read(distID[:]); err != nil {
+		t.Fatalf("rand distID: %v", err)
+	}
+
+	// Rust creates the chain and returns the SKDM + its sending record.
+	var create struct {
+		SKDM   string `json:"skdm"`
+		Record string `json:"record"`
+	}
+	h.ok("group.create_distribution", map[string]any{
+		"sender":          senderName,
+		"device":          1,
+		"distribution_id": hx(distID[:]),
+	}, &create)
+	if create.SKDM == "" || create.Record == "" {
+		t.Fatal("Rust create_distribution returned empty skdm/record")
+	}
+
+	// Go processes the Rust SKDM into its receiver store.
+	skdm, err := protocol.DeserializeSenderKeyDistributionMessage(mustDecodeHex(t, create.SKDM))
+	if err != nil {
+		t.Fatalf("parse Rust SKDM: %v", err)
+	}
+	receiverStore := inmem.NewSenderKeyStore()
+	if err := groups.ProcessSenderKeyDistributionMessage(ctx, sender, skdm, receiverStore); err != nil {
+		t.Fatalf("Go process distribution: %v", err)
+	}
+
+	senderRecord := create.Record
+	for i := 0; i < 4; i++ {
+		plaintext := []byte(fmt.Sprintf("rust->go group message %d", i))
+
+		// Rust encrypts on its sending chain (record threaded back in each call).
+		var enc struct {
+			SKM    string `json:"skm"`
+			Record string `json:"record"`
+		}
+		h.ok("group.encrypt", map[string]any{
+			"sender":          senderName,
+			"device":          1,
+			"distribution_id": hx(distID[:]),
+			"record":          senderRecord,
+			"plaintext":       hx(plaintext),
+		}, &enc)
+		senderRecord = enc.Record // advance the sending state for the next message
+
+		got, err := groups.Decrypt(ctx, sender, mustDecodeHex(t, enc.SKM), receiverStore)
+		if err != nil {
+			t.Fatalf("case %d: Go decrypt: %v", i, err)
+		}
+		if !bytes.Equal(got, plaintext) {
+			t.Fatalf("case %d: Go decrypted %x, want %x", i, got, plaintext)
+		}
 	}
 }

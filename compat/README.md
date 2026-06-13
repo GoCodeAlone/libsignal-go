@@ -27,6 +27,7 @@ This directory covers layer 1.
 | `vectors/messages.json` | wire message golden bytes | `{seed, cases:[…]}` |
 | `vectors/fingerprint.json` | display + scannable fingerprints | `{seed, cases:[…]}` |
 | `vectors/sessions.json` | PQXDH master secret, **no one-time pre-key** (DH4 absent) | `{seed, cases:[…]}` |
+| `vectors/groups.json` | sender-key cipher golden bytes (SKDM + SKM) | `{seed, cases:[…]}` |
 
 Each curve signing case and each `sender_key_message` case records the 64-byte
 XEdDSA signing `nonce`, so the Go consumer can reproduce the signature
@@ -49,7 +50,7 @@ See `rust-harness/README.md` for full harness/toolchain details.
 # from compat/
 cargo build --release --manifest-path rust-harness/Cargo.toml
 BIN=rust-harness/target/release/rust-harness
-for d in curve kem-decaps hkdf messages fingerprint sessions; do
+for d in curve kem-decaps hkdf messages fingerprint sessions groups; do
   "$BIN" gen-vectors "$d" > "vectors/$d.json"
 done
 ```
@@ -126,3 +127,21 @@ deserializes a v3-version-byte `SignalMessage` and asserts it is accepted (with
 v2 below the floor and v5 above the ceiling rejected). That capability exists and
 is covered; it simply cannot be *cross-checked* against the v0.91.0 harness,
 because the harness's upstream cannot emit a v3 message.
+- **groups** — `groups.json` carries two arrays. The `cases` array drives the
+  full sender-key cipher both directions: Go `Encrypt` from the recorded
+  pre-encrypt sending record (replaying the recorded signing nonce) must match
+  the upstream `SenderKeyMessage` bytes, and Go
+  `ProcessSenderKeyDistributionMessage` + `Decrypt` of the upstream SKM recovers
+  the recorded plaintext. The `derivations` array is the byte-exact sender-key
+  primitive KAT — upstream chain-key ratchet (`HMAC(chain_key,[0x02])`) and
+  `senderMessageKey` iv/cipher_key (`HKDF(HMAC(chain_key,[0x01]), "WhisperGroup")`)
+  — consumed by `groups/derivation_kat_test.go` (a white-box test, since those
+  primitives are unexported), pinning the primitive independently of the cipher
+  wire framing, the same pattern `ratchet/` uses against `hkdf.json`.
+
+The live interop leg (`interop_test.go`, `-tags=interop`) additionally drives
+the group cipher both directions against the running harness: Go-distribute +
+encrypt -> Rust process + decrypt (`group.process_distribution` /
+`group.decrypt`), and Rust-distribute + encrypt -> Go process + decrypt
+(`group.create_distribution` / `group.encrypt`). The harness threads the
+serialized `SenderKeyRecord` through each call so its dispatch stays stateless.

@@ -10,16 +10,20 @@ package compat
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
+	"github.com/GoCodeAlone/libsignal-go/groups"
 	"github.com/GoCodeAlone/libsignal-go/kem"
 	"github.com/GoCodeAlone/libsignal-go/protocol"
 	"github.com/GoCodeAlone/libsignal-go/ratchet"
+	"github.com/GoCodeAlone/libsignal-go/stores/inmem"
 )
 
 // loadVectors reads and JSON-decodes compat/vectors/<domain>.json into dst.
@@ -703,4 +707,83 @@ func TestSessionsNoOneTimePreKeyVectors(t *testing.T) {
 	}
 
 	t.Logf("sessions (no-one-time-prekey, via ratchet/): %d cases == upstream", len(batch.Cases))
+}
+
+// --- groups ---
+//
+// The sender-key cipher is consumed both directions byte-for-byte against
+// upstream: Go encrypts from the recorded pre-encrypt sending record (replaying
+// the recorded signing nonce) and must produce the upstream SenderKeyMessage
+// bytes; and Go processes the upstream SKDM into a fresh receiver store and
+// decrypts the upstream SKM back to the recorded plaintext.
+
+func TestGroupsVectors(t *testing.T) {
+	var batch struct {
+		Cases []struct {
+			SenderName     string `json:"sender_name"`
+			SenderDevice   uint32 `json:"sender_device"`
+			DistributionID string `json:"distribution_id"`
+			ChainID        uint32 `json:"chain_id"`
+			SigningPublic  string `json:"signing_public"`
+			SKDM           string `json:"skdm"`
+			SenderRecord   string `json:"sender_record"`
+			Plaintext      string `json:"plaintext"`
+			EncryptNonce   string `json:"encrypt_nonce"`
+			SKM            string `json:"skm"`
+		} `json:"cases"`
+	}
+	loadVectors(t, "groups", &batch)
+	if len(batch.Cases) == 0 {
+		t.Fatal("groups: no cases")
+	}
+
+	ctx := context.Background()
+	for i, c := range batch.Cases {
+		dev, err := address.NewDeviceID(c.SenderDevice)
+		if err != nil {
+			t.Fatalf("case %d: device id: %v", i, err)
+		}
+		sender := address.NewProtocolAddress(c.SenderName, dev)
+
+		distRaw := mustHex(t, c.DistributionID)
+		if len(distRaw) != 16 {
+			t.Fatalf("case %d: distribution id is %d bytes, want 16", i, len(distRaw))
+		}
+		var distID [16]byte
+		copy(distID[:], distRaw)
+
+		// Direction 1: Go encrypt from the recorded pre-encrypt record, replaying
+		// the recorded nonce, must match the upstream SKM bytes.
+		senderStore := inmem.NewSenderKeyStore()
+		if err := senderStore.StoreSenderKey(ctx, sender, distID, mustHex(t, c.SenderRecord)); err != nil {
+			t.Fatalf("case %d: seed sender record: %v", i, err)
+		}
+		nonce := bytes.NewReader(mustHex(t, c.EncryptNonce))
+		skm, err := groups.Encrypt(ctx, sender, distID, mustHex(t, c.Plaintext), senderStore, nonce)
+		if err != nil {
+			t.Fatalf("case %d: Go encrypt: %v", i, err)
+		}
+		if want := mustHex(t, c.SKM); !bytes.Equal(skm.Serialized(), want) {
+			t.Fatalf("case %d: Go SKM != upstream\n go   %x\n want %x", i, skm.Serialized(), want)
+		}
+
+		// Direction 2: Go process the upstream SKDM then decrypt the upstream SKM
+		// back to the recorded plaintext.
+		skdm, err := protocol.DeserializeSenderKeyDistributionMessage(mustHex(t, c.SKDM))
+		if err != nil {
+			t.Fatalf("case %d: parse SKDM: %v", i, err)
+		}
+		receiverStore := inmem.NewSenderKeyStore()
+		if err := groups.ProcessSenderKeyDistributionMessage(ctx, sender, skdm, receiverStore); err != nil {
+			t.Fatalf("case %d: process SKDM: %v", i, err)
+		}
+		plaintext, err := groups.Decrypt(ctx, sender, mustHex(t, c.SKM), receiverStore)
+		if err != nil {
+			t.Fatalf("case %d: Go decrypt: %v", i, err)
+		}
+		if want := mustHex(t, c.Plaintext); !bytes.Equal(plaintext, want) {
+			t.Fatalf("case %d: decrypted plaintext %x, want %x", i, plaintext, want)
+		}
+	}
+	t.Logf("groups: %d cases consumed both directions (encrypt-bytes-match + process/decrypt round-trip)", len(batch.Cases))
 }
