@@ -69,7 +69,8 @@ deliberate non-goals for this module.
 | Double Ratchet keys + session state + stores | ✅ implemented | [`ratchet`](ratchet/), [`session`](session/), [`stores`](stores/) | KDF + state KATs |
 | PQXDH session establishment + session cipher | ✅ implemented | [`session`](session/) | both roles, with/without one-time pre-key, interop |
 | Group messaging (sender keys + group cipher) | ✅ implemented | [`groups`](groups/) | SKDM + cipher, both directions, interop |
-| Sealed sender v1 + v2 (+ AES-256-GCM-SIV) | ✅ implemented | `sealedsender` | lands in P8 |
+| Sealed sender v1 + v2 | ✅ implemented | [`sealedsender`](sealedsender/) | certificate chain + USMC + seal/decrypt, both versions, interop |
+| AES-256-GCM-SIV (RFC 8452) | ✅ implemented | [`internal/crypto/gcmsiv`](internal/crypto/gcmsiv/) | nonce-misuse-resistant AEAD for sealed sender v2 |
 | Fingerprints (numeric + scannable) | ✅ implemented | [`fingerprint`](fingerprint/) | display + scannable byte-equal vs upstream |
 | Sparse Post-Quantum Ratchet (SPQR) | 🚧 staged (P10) | `spqr` | proto fields parsed + preserved now; negotiation + mainline re-pin land in P10 |
 | X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.91.0 cannot initiate v3 |
@@ -107,12 +108,21 @@ is older.
 
 ## Usage
 
-API documentation and usage examples will be added as the protocol surface
-lands (session round-trip, group messaging, and sealed sender examples arrive
-with P9). For now, see the package documentation:
+Runnable examples live alongside the packages they document (Go renders them in
+`go doc` and runs them under `go test`):
+
+- [`session.Example_sessionRoundTrip`](session/example_test.go) — a PQXDH
+  handshake and the first encrypted message between two parties.
+- [`groups.Example_groupMessaging`](groups/example_test.go) — sender-key
+  distribution and a group-encrypted message.
+- [`sealedsender.Example_sealedSender`](sealedsender/example_test.go) — a sealed
+  sender v1 message with certificate-chain validation.
+
+Browse the full API with:
 
 ```shell
 go doc github.com/GoCodeAlone/libsignal-go
+go doc github.com/GoCodeAlone/libsignal-go/session
 ```
 
 ## Development
