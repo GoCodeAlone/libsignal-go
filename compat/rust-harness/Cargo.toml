@@ -43,3 +43,20 @@ uuid = "1"
 # create/process_sender_key_distribution_message (over the synchronous in-memory
 # store) to completion in the interop RPC dispatch and the groups vectors.
 futures = "0.3"
+# The incremental ML-KEM-768 KEM used by SPQR (the Stage-2 PQ ratchet). Pinned to
+# EXACTLY the version SPQR v1.5.1 pulls in transitively (see Cargo.lock), so the
+# graph has a single copy and the harness exercises the same byte layout the Go
+# port targets. SPQR's own incremental_mlkem768 wrapper is pub(crate), so the
+# harness calls libcrux's public `mlkem768::incremental` API directly and
+# reproduces SPQR's issue-1275 endianness normalization inline (see
+# gen_mlkem_incremental). This is the oracle-3 reference for T27 Slice 0b.
+#
+# We enable `incremental` + `mlkem768` explicitly rather than relying on
+# SPQR/libsignal to turn them on transitively (Cargo unifies features, but our
+# direct `mlkem768::incremental` calls must not depend on another crate's
+# selection surviving an upstream change). We deliberately do NOT enable
+# `simd128`/`simd256`: with the portable backend libcrux serializes the
+# EncapsState i16s in correct little-endian, so the generated fixture is
+# host-independent and free of the cryspen/libcrux#1275 byte-swap (which the Go
+# port handles defensively regardless — see gen_mlkem_incremental).
+libcrux-ml-kem = { version = "=0.0.8", default-features = false, features = ["incremental", "mlkem768", "alloc"] }

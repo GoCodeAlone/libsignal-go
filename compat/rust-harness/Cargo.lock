@@ -1216,6 +1216,7 @@ dependencies = [
  "hex",
  "hkdf",
  "hmac",
+ "libcrux-ml-kem",
  "libsignal-protocol",
  "rand",
  "rand_chacha",

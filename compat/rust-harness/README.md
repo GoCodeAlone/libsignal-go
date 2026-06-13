@@ -68,6 +68,15 @@ Domains:
   `SenderKeyDistributionMessage`, built with fixed keys.
 - `fingerprint` — display + scannable fingerprints (v1 and v2) for a fixed
   identity-key pair.
+- `mlkem-incremental` — byte-exact KATs for libcrux 0.0.8's incremental
+  ML-KEM-768 (the KEM SPQR uses): the keygen split (`pk1`/`pk2`/`dk`), two-phase
+  encapsulation (`ct1`, `encaps_state`, `ct2`, `shared_secret`), and
+  decapsulation. `encaps_state` is the raw libcrux state for this host's backend;
+  `encaps_state_fixed` is the cryspen/libcrux#1275-normalized state (equal to
+  `encaps_state` on the portable backend, which is what builds here use). Oracle 3
+  for the pure-Go `internal/mlkem768incr` incremental layer; the generated batch
+  is committed at
+  `internal/mlkem768incr/testdata/libcrux_incremental_mlkem768.json`.
 
 Example:
 
