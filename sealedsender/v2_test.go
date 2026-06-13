@@ -160,6 +160,39 @@ func TestSealV2NoRecipients(t *testing.T) {
 	}
 }
 
+// TestSealV2MixedIdentityKeysInGroup confirms SealV2 rejects two devices of the
+// SAME ServiceID carrying DIFFERENT identity keys. The per-recipient C_i/AT_i
+// are emitted once per ServiceID group (keyed to the first device's identity),
+// so a divergent key on a later device would silently produce a message that
+// device can't decrypt. Upstream can't hit this (one identity per name by
+// construction); our per-entry IdentityKey can, so it must be a typed error.
+func TestSealV2MixedIdentityKeysInGroup(t *testing.T) {
+	f := newSealFixture(t)
+	var uuid [16]byte
+	copy(uuid[:], bytes.Repeat([]byte{0x77}, len(uuid)))
+	aci := address.NewACI(uuid)
+
+	dev1 := genKey(t, 170)
+	dev2 := genKey(t, 171) // SAME ServiceID, DIFFERENT identity key
+	recipients := []SealV2Recipient{
+		{ServiceID: aci, IdentityKey: dev1.PublicKey, DeviceID: 1, RegistrationID: 1},
+		{ServiceID: aci, IdentityKey: dev2.PublicKey, DeviceID: 2, RegistrationID: 2},
+	}
+	if _, err := SealV2(f.usmc, recipients, f.senderIdentity, rand.Reader); !errors.Is(err, ErrInvalidUSMC) {
+		t.Fatalf("mixed identity keys in a ServiceID group: err = %v, want ErrInvalidUSMC", err)
+	}
+
+	// Sanity: two devices of the same ServiceID sharing ONE identity key is fine.
+	shared := genKey(t, 172)
+	ok := []SealV2Recipient{
+		{ServiceID: aci, IdentityKey: shared.PublicKey, DeviceID: 1, RegistrationID: 1},
+		{ServiceID: aci, IdentityKey: shared.PublicKey, DeviceID: 2, RegistrationID: 2},
+	}
+	if _, err := SealV2(f.usmc, ok, f.senderIdentity, rand.Reader); err != nil {
+		t.Fatalf("same-key multi-device group unexpectedly rejected: %v", err)
+	}
+}
+
 // FuzzDecryptToUSMC confirms the v1 and v2 sealed-sender decrypt entry never
 // panics on arbitrary bytes. Seeds with a valid v1 and a valid v2 received
 // message plus a fresh recipient key.

@@ -368,6 +368,16 @@ func encodeV2SentMessage(recipients []SealV2Recipient, perRecipient []v2PerRecip
 
 		for d := 0; d < g.count; d++ {
 			r := recipients[g.start+d]
+			// All devices of one ServiceID must carry the same identity key: the
+			// per-recipient C_i/AT_i are emitted once per group (keyed to the
+			// first device's identity), so a divergent key on a later device would
+			// silently produce a SENT message that recipient can't decrypt.
+			// Upstream can't hit this — its identity store maps a name to a single
+			// identity, fetched once per group (sealed_sender.rs:1431-1457) — but
+			// our per-entry SealV2Recipient.IdentityKey can, so guard it here.
+			if !r.IdentityKey.Equal(first.IdentityKey) {
+				return nil, fmt.Errorf("%w: devices of ServiceID %s have differing identity keys", ErrInvalidUSMC, first.ServiceID.ServiceIDString())
+			}
 			if r.DeviceID == 0 || r.DeviceID > 0xFF {
 				return nil, fmt.Errorf("%w: device id %d out of byte range", ErrInvalidUSMC, r.DeviceID)
 			}

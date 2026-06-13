@@ -278,9 +278,15 @@ func NewSenderCertificate(
 	}
 	deviceID := senderDeviceID
 	// Store and serialize at the proto's millisecond granularity. The wire field
-	// is fixed64 (unsigned); epoch-millis are non-negative in practice.
+	// is fixed64 (UNSIGNED), so a pre-epoch expiration cannot round-trip: casting
+	// its negative epoch-millis to uint64 would wrap to a huge value that
+	// deserializes as a far-future expiry. Reject it up front (no panic, no
+	// silent wrap).
 	expirationMillis := expiration.UnixMilli()
-	expiresMillis := uint64(expirationMillis) //nolint:gosec // G115: non-negative epoch-millis
+	if expirationMillis < 0 {
+		return nil, fmt.Errorf("%w: expiration is before the Unix epoch (%s)", ErrInvalidCertificate, expiration.UTC())
+	}
+	expiresMillis := uint64(expirationMillis) //nolint:gosec // G115: just checked >= 0
 	identityKey := key.Serialize()
 	certData := &proto.SenderCertificate_Certificate{
 		SenderUuid:   &proto.SenderCertificate_Certificate_UuidString{UuidString: senderUUID},

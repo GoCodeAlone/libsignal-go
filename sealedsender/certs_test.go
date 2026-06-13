@@ -239,6 +239,31 @@ func TestSenderCertificateExpired(t *testing.T) {
 	}
 }
 
+// TestSenderCertificatePreEpochExpirationRejected confirms NewSenderCertificate
+// rejects an expiration before the Unix epoch with a typed error instead of
+// silently wrapping the negative epoch-millis into a huge uint64 (the proto's
+// fixed64 expires field is unsigned, so a pre-epoch time cannot round-trip).
+func TestSenderCertificatePreEpochExpirationRejected(t *testing.T) {
+	trustRoot := genKey(t, 60)
+	serverKey := genKey(t, 61)
+	senderIdentity := genKey(t, 62)
+	server, err := NewServerCertificate(1, serverKey.PublicKey, trustRoot.PrivateKey, rand.Reader)
+	if err != nil {
+		t.Fatalf("NewServerCertificate: %v", err)
+	}
+
+	preEpoch := time.UnixMilli(-1).UTC()
+	_, err = NewSenderCertificate("u", nil, senderIdentity.PublicKey, 1, preEpoch, server, serverKey.PrivateKey, rand.Reader)
+	if !errors.Is(err, ErrInvalidCertificate) {
+		t.Fatalf("pre-epoch expiration: err = %v, want ErrInvalidCertificate", err)
+	}
+
+	// The Unix epoch itself (0 ms) is accepted — only strictly-negative is rejected.
+	if _, err := NewSenderCertificate("u", nil, senderIdentity.PublicKey, 1, time.UnixMilli(0).UTC(), server, serverKey.PrivateKey, rand.Reader); err != nil {
+		t.Fatalf("epoch-zero expiration unexpectedly rejected: %v", err)
+	}
+}
+
 func TestSenderCertificateUUIDBytesForm(t *testing.T) {
 	// A sender certificate whose uuid is carried as 16 raw bytes must deserialize
 	// to the canonical hyphenated string.
