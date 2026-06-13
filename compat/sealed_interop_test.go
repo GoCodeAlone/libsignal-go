@@ -175,3 +175,46 @@ func TestSealedInteropGoSealV2RustUnseal(t *testing.T) {
 	}
 	p.assertRecoveredUSMC(t, got)
 }
+
+// TestSealedInteropRustSealV2GoUnseal: the genuine upstream multi-recipient
+// encoder (sealed_sender_multi_recipient_encrypt) seals to N recipients; the
+// harness fans out each recipient's received message; Go decrypts and validates
+// every one. This closes the v2 reverse direction (upstream ENCODER -> Go decode,
+// incl. the multi-recipient fan-out), the leg not covered by GoSealV2RustUnseal.
+func TestSealedInteropRustSealV2GoUnseal(t *testing.T) {
+	h := newHarness(t)
+	p := newSealedParties(t)
+
+	const numRecipients = 3
+	var res struct {
+		Recipients []struct {
+			IdentityPrivate string `json:"identity_private"`
+			Received        string `json:"received"`
+		} `json:"recipients"`
+	}
+	h.ok("sealed.seal-v2", map[string]any{
+		"usmc":                    hx(p.usmc.Serialized()),
+		"sender_identity_private": hx(p.sender.PrivateKey.Serialize()),
+		"num_recipients":          numRecipients,
+	}, &res)
+
+	if len(res.Recipients) != numRecipients {
+		t.Fatalf("got %d recipients, want %d", len(res.Recipients), numRecipients)
+	}
+	for i, r := range res.Recipients {
+		priv, err := curve.DeserializePrivateKey(mustDecodeHex(t, r.IdentityPrivate))
+		if err != nil {
+			t.Fatalf("recipient %d: private key: %v", i, err)
+		}
+		recipient, err := curve.KeyPairFromPrivateKey(priv)
+		if err != nil {
+			t.Fatalf("recipient %d: key pair: %v", i, err)
+		}
+		got, err := sealedsender.DecryptToUSMCAndValidate(
+			mustDecodeHex(t, r.Received), recipient, p.trustRoot, time.UnixMilli(1_500_000_000_000).UTC())
+		if err != nil {
+			t.Fatalf("recipient %d: Go DecryptToUSMCAndValidate: %v", i, err)
+		}
+		p.assertRecoveredUSMC(t, got)
+	}
+}
