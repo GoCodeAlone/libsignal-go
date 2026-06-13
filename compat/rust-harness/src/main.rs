@@ -200,6 +200,27 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
             obj.insert("cases".into(), Value::Array(gen_sealedsender()));
         }
         "mlkem-incremental" => {
+            // Provenance note: pins the generating crate revisions and records
+            // which libcrux backend produced the raw `encaps_state`. With
+            // simd128/simd256 OFF (this harness depends on libcrux-ml-kem with
+            // default-features=false + features=incremental/mlkem768/alloc),
+            // libcrux always uses the PORTABLE backend, whose EncapsState i16
+            // serialization is correct little-endian — so `encaps_state` (raw)
+            // already equals `encaps_state_fixed` on every host. If a future
+            // build enables a SIMD backend (NEON on aarch64, AVX2 on x86), the
+            // raw field would carry the cryspen/libcrux#1275 byte-swap and would
+            // differ from `encaps_state_fixed` — that is a backend difference,
+            // NOT corruption or a regression. Regenerate (see README) if the
+            // pinned revs below change.
+            obj.insert(
+                "_note".into(),
+                json!({
+                    "encaps_state_backend": "libcrux portable (simd128/simd256 disabled); raw == fixed on all hosts",
+                    "libcrux_ml_kem": "0.0.8 (registry, =0.0.8 in compat/rust-harness/Cargo.toml; checksum-pinned in Cargo.lock)",
+                    "spqr_reference": "1.5.1 (git tag v1.5.1, rev f2589fef855c10f39d72634dab3d14654dd410bf; issue-1275 fix reproduced inline in gen_mlkem_incremental since SPQR's wrapper is pub(crate))",
+                    "issue_1275": "https://github.com/cryspen/libcrux/issues/1275 — SIMD-backend EncapsState i16 endianness",
+                }),
+            );
             obj.insert("cases".into(), Value::Array(gen_mlkem_incremental()));
         }
         other => {

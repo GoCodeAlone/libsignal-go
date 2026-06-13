@@ -123,6 +123,18 @@ func TestIncrementalOracleEncaps(t *testing.T) {
 			t.Fatalf("case %d: encaps state mismatch vs libcrux (1275-normalized)", i)
 		}
 
+		// The 1275 detector applied to the raw libcrux state must yield the
+		// normalized state. On the portable-backend fixture raw == fixed, so this
+		// is the idempotent (no-flip) case; the actual byte-swap repair is
+		// exercised by TestFixEncapsStateEndianness's hand-crafted vector.
+		fixedRaw, err := FixEncapsStateEndianness(unhexT(t, c.EncapsState))
+		if err != nil {
+			t.Fatalf("case %d: FixEncapsStateEndianness(raw): %v", i, err)
+		}
+		if !bytes.Equal(fixedRaw, unhexT(t, c.EncapsStateFixed)) {
+			t.Fatalf("case %d: fix(raw) != fixed", i)
+		}
+
 		ct2, err := Encapsulate2(unhexT(t, c.EncapsStateFixed), pk2)
 		if err != nil {
 			t.Fatalf("case %d: Encapsulate2: %v", i, err)
@@ -185,11 +197,22 @@ func TestIncrementalEndToEnd(t *testing.T) {
 	}
 }
 
-// TestFixEncapsStateEndianness covers the issue-1275 detect-and-flip directly,
-// including the swapped path that the live fixture (generated on a portable
-// libcrux backend) never exercises: a hand-crafted byte-swapped state must be
-// repaired back to the correct one, and a correct state must pass through
-// unchanged and still drive a working Encapsulate2.
+// TestFixEncapsStateEndianness covers the issue-1275 detect-and-flip directly.
+//
+// LOAD-BEARING — do not delete thinking the oracle fixture covers this. The
+// committed fixture is generated on libcrux's PORTABLE backend (the harness
+// disables simd128/simd256), so its raw `encaps_state` is already correct
+// little-endian and equals `encaps_state_fixed`. The detect+fix(raw)==fixed
+// assertion in TestIncrementalOracleEncaps is therefore the host-PORTABLE case:
+// fix() is an idempotent no-op there and never runs the flip branch. The ONLY
+// thing that exercises the actual byte-swap repair on a portable host is the
+// hand-crafted swapped state below. (On a SIMD-backend host the fixture's raw
+// field would be swapped and the oracle would also exercise the flip — but CI
+// must not depend on that.)
+//
+// A hand-crafted byte-swapped state must be repaired back to the correct one; a
+// correct state must pass through unchanged and still drive a working
+// Encapsulate2.
 func TestFixEncapsStateEndianness(t *testing.T) {
 	v := loadIncrVectors(t)
 	c := v.Cases[0]
