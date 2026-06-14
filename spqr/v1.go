@@ -462,5 +462,204 @@ func (s *v1State) recvNextEpoch(nextEpoch uint64) *v1State {
 	return &v1State{tag: tagKeysUnsampled, epoch: nextEpoch, auth: s.auth}
 }
 
-// (the send/recv dispatch + lib.rs orchestration follow in subsequent WIP
-// commits — this is the in-progress v1 machine.)
+// --- send / recv dispatch (states.rs send/recv) ---
+
+// send advances the state by one outbound step, returning the new state, the
+// message to send, and (when this step completed a KEM exchange) the EpochSecret
+// for the Chain. Mirrors States::send.
+func (s *v1State) send(rng io.Reader) (*v1Send, error) {
+	switch s.tag {
+	// --- send_ek ---
+	case tagKeysUnsampled:
+		ns, chunk, err := s.sendHdrChunk(rng)
+		if err != nil {
+			return nil, err
+		}
+		return &v1Send{state: ns, msg: v1Message{epoch: s.epoch, kind: payloadHdr, chunk: chunk}}, nil
+	case tagKeysSampled:
+		ns, chunk := s.sendHdrChunkAgain()
+		return &v1Send{state: ns, msg: v1Message{epoch: s.epoch, kind: payloadHdr, chunk: chunk}}, nil
+	case tagHeaderSent:
+		ns, chunk := s.sendEkChunk()
+		return &v1Send{state: ns, msg: v1Message{epoch: s.epoch, kind: payloadEk, chunk: chunk}}, nil
+	case tagCt1Received:
+		// Ct1Received sends ek chunks that ALSO acknowledge ct1 → EkCt1Ack.
+		ns, chunk := s.sendEkChunk()
+		return &v1Send{state: ns, msg: v1Message{epoch: s.epoch, kind: payloadEkCt1Ack, chunk: chunk}}, nil
+	case tagEkSentCt1Received:
+		// Done sending ek; just acknowledge ct1 (no chunk).
+		return &v1Send{state: s, msg: v1Message{epoch: s.epoch, kind: payloadCt1Ack, ct1Ack: true}}, nil
+
+	// --- send_ct ---
+	case tagNoHeaderReceived:
+		return &v1Send{state: s, msg: v1Message{epoch: s.epoch, kind: payloadNone}}, nil
+	case tagHeaderReceived:
+		ns, chunk, sec, err := s.sendCt1(rng)
+		if err != nil {
+			return nil, err
+		}
+		return &v1Send{state: ns, msg: v1Message{epoch: s.epoch, kind: payloadCt1, chunk: chunk}, key: sec}, nil
+	case tagCt1Sampled:
+		ns, chunk := s.sendCt1Chunk()
+		return &v1Send{state: ns, msg: v1Message{epoch: s.epoch, kind: payloadCt1, chunk: chunk}}, nil
+	case tagEkReceivedCt1Sampled:
+		ns, chunk := s.sendCt1Chunk()
+		return &v1Send{state: ns, msg: v1Message{epoch: s.epoch, kind: payloadCt1, chunk: chunk}}, nil
+	case tagCt1Acknowledged:
+		return &v1Send{state: s, msg: v1Message{epoch: s.epoch, kind: payloadNone}}, nil
+	case tagCt2Sampled:
+		ns, chunk := s.sendCt2Chunk()
+		return &v1Send{state: ns, msg: v1Message{epoch: s.epoch, kind: payloadCt2, chunk: chunk}}, nil
+	default:
+		return nil, fmt.Errorf("spqr: invalid v1 state tag %d", s.tag)
+	}
+}
+
+// recv folds an inbound message, returning the new state and (when an epoch
+// completed) the EpochSecret. Out-of-range epoch is an error except the
+// Ct2Sampled→next-epoch advance; a stale (older-epoch) message is a no-op; an
+// equal-epoch message is processed by payload kind. Mirrors States::recv.
+func (s *v1State) recv(msg *v1Message) (*v1Recv, error) {
+	switch s.tag {
+	// --- send_ek ---
+	case tagKeysUnsampled:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		return &v1Recv{state: s}, nil // no-op (Less or Equal)
+	case tagKeysSampled:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		if msg.epoch == s.epoch && msg.kind == payloadCt1 {
+			ns, err := s.recvCt1ChunkKeysSampled(&msg.chunk)
+			if err != nil {
+				return nil, err
+			}
+			return &v1Recv{state: ns}, nil
+		}
+		return &v1Recv{state: s}, nil
+	case tagHeaderSent:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		if msg.epoch == s.epoch && msg.kind == payloadCt1 {
+			return &v1Recv{state: s.recvCt1ChunkHeaderSent(&msg.chunk)}, nil
+		}
+		return &v1Recv{state: s}, nil
+	case tagCt1Received:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		if msg.epoch == s.epoch && msg.kind == payloadCt2 {
+			ns, err := s.recvCt2ChunkCt1Received(&msg.chunk)
+			if err != nil {
+				return nil, err
+			}
+			return &v1Recv{state: ns}, nil
+		}
+		return &v1Recv{state: s}, nil
+	case tagEkSentCt1Received:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		if msg.epoch == s.epoch && msg.kind == payloadCt2 {
+			ns, key, _, err := s.recvCt2ChunkEkSent(&msg.chunk)
+			if err != nil {
+				return nil, err
+			}
+			return &v1Recv{state: ns, key: key}, nil
+		}
+		return &v1Recv{state: s}, nil
+
+	// --- send_ct ---
+	case tagNoHeaderReceived:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		if msg.epoch == s.epoch && msg.kind == payloadHdr {
+			ns, _, err := s.recvHdrChunk(&msg.chunk)
+			if err != nil {
+				return nil, err
+			}
+			return &v1Recv{state: ns}, nil
+		}
+		return &v1Recv{state: s}, nil
+	case tagHeaderReceived:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		return &v1Recv{state: s}, nil // no inbound transition; advances only via send
+	case tagCt1Sampled:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		if msg.epoch == s.epoch {
+			var (
+				chunk *chunked.Chunk
+				ack   bool
+			)
+			switch msg.kind {
+			case payloadEk:
+				chunk, ack = &msg.chunk, false
+			case payloadEkCt1Ack:
+				chunk, ack = &msg.chunk, true
+			}
+			if chunk != nil {
+				ns, err := s.recvEkChunkCt1Sampled(chunk, ack)
+				if err != nil {
+					return nil, err
+				}
+				return &v1Recv{state: ns}, nil
+			}
+		}
+		return &v1Recv{state: s}, nil
+	case tagEkReceivedCt1Sampled:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		if msg.epoch == s.epoch {
+			switch msg.kind {
+			case payloadEkCt1Ack:
+				ns, err := s.recvEkChunkAcked(&msg.chunk)
+				if err != nil {
+					return nil, err
+				}
+				return &v1Recv{state: ns}, nil
+			case payloadCt1Ack:
+				if msg.ct1Ack {
+					return &v1Recv{state: s.recvCt1AckOnly()}, nil
+				}
+			}
+		}
+		return &v1Recv{state: s}, nil
+	case tagCt1Acknowledged:
+		if msg.epoch > s.epoch {
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		// Post-ack, the ek was already validated+stored on entry; once present,
+		// build ct2. (OOO ek chunks would be folded here in the reference; our
+		// Ct1Acknowledged stores the completed ek, so advance to Ct2Sampled.)
+		if msg.epoch == s.epoch && (msg.kind == payloadEk || msg.kind == payloadEkCt1Ack) {
+			ns, err := s.ct1AcknowledgedToCt2()
+			if err != nil {
+				return nil, err
+			}
+			return &v1Recv{state: ns}, nil
+		}
+		return &v1Recv{state: s}, nil
+	case tagCt2Sampled:
+		if msg.epoch > s.epoch {
+			if msg.epoch == s.epoch+1 {
+				return &v1Recv{state: s.recvNextEpoch(msg.epoch)}, nil
+			}
+			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
+		}
+		return &v1Recv{state: s}, nil
+	default:
+		return nil, fmt.Errorf("spqr: invalid v1 state tag %d", s.tag)
+	}
+}
+
+// (lib.rs orchestration — chain wiring + version negotiation — and the lockstep
+// oracle follow in subsequent WIP commits.)
