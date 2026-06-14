@@ -7,16 +7,18 @@
 // serializes to the same SessionStructure / RecordStructure protobufs as
 // upstream libsignal v0.91.0.
 //
-// Compatibility staging: sessions negotiate at the v0.91.0 surface, where the
-// Sparse Post-Quantum Ratchet (SPQR) is optional — the pq_ratchet message field
-// and pq_ratchet_state are parsed and preserved but not produced. SPQR
-// negotiation lands in the P10 phase, after which the compat pin is upgraded to
-// upstream mainline; see decisions/0001-spqr-staged-compat.md and the README
-// scope matrix.
+// Compatibility staging: sessions negotiate at the v0.91.0 surface, which ships
+// the Sparse Post-Quantum Ratchet (SPQR) as an optional layer. The session
+// drives SPQR through PQRatchetSend / PQRatchetRecv (the pq_ratchet message
+// field and pq_ratchet_state), mixing the SPQR key into the Double Ratchet
+// message keys; min_version V0 means a peer that does not speak SPQR still
+// interoperates (the key contribution is empty and the derivation is unchanged).
+// See decisions/0001-spqr-staged-compat.md and the README scope matrix.
 package session
 
 import (
 	"fmt"
+	"io"
 	"time"
 
 	googleproto "google.golang.org/protobuf/proto"
@@ -24,6 +26,7 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/proto"
 	"github.com/GoCodeAlone/libsignal-go/ratchet"
+	"github.com/GoCodeAlone/libsignal-go/spqr"
 )
 
 // Bounds from rust/protocol/src/consts.rs. These cap unbounded growth of the
@@ -130,13 +133,43 @@ func (s *SessionState) AliceBaseKey() []byte { return s.structure.GetAliceBaseKe
 // SetAliceBaseKey records the Alice base key used to match sessions.
 func (s *SessionState) SetAliceBaseKey(key []byte) { s.structure.AliceBaseKey = cloneBytes(key) }
 
-// PQRatchetState returns the opaque post-quantum ratchet (SPQR) state bytes.
-// This package treats it as an opaque blob — it is preserved verbatim through
-// serialize/deserialize and never interpreted here.
+// PQRatchetState returns the serialized Sparse Post-Quantum Ratchet (SPQR)
+// state bytes. The session layer drives it through PQRatchetSend / PQRatchetRecv;
+// it is also preserved verbatim through serialize/deserialize.
 func (s *SessionState) PQRatchetState() []byte { return s.structure.GetPqRatchetState() }
 
-// SetPQRatchetState stores the opaque SPQR state bytes.
+// SetPQRatchetState stores the serialized SPQR state bytes.
 func (s *SessionState) SetPQRatchetState(b []byte) { s.structure.PqRatchetState = cloneBytes(b) }
+
+// PQRatchetSend advances the SPQR send ratchet one step: it produces the
+// outbound SPQR message to attach to the ciphertext (the SignalMessage
+// pq_ratchet field) and the SPQR message key to mix into the Double Ratchet
+// message keys, updating the stored SPQR state in place. A nil/empty returned
+// key means SPQR contributed no key this message (V0 / still negotiating), in
+// which case the message-key derivation is unchanged. Mirrors
+// SessionState::pq_ratchet_send (spqr::send). rng must be a CSPRNG.
+func (s *SessionState) PQRatchetSend(rng io.Reader) (msg []byte, key []byte, err error) {
+	res, err := spqr.Send(s.structure.GetPqRatchetState(), rng)
+	if err != nil {
+		return nil, nil, fmt.Errorf("session: SPQR send: %w", err)
+	}
+	s.structure.PqRatchetState = res.State
+	return res.Msg, res.Key, nil
+}
+
+// PQRatchetRecv advances the SPQR receive ratchet one step from an inbound SPQR
+// message (the SignalMessage pq_ratchet field), returning the SPQR message key
+// to mix into the Double Ratchet message keys and updating the stored SPQR state
+// in place. A nil/empty returned key means SPQR contributed no key. Mirrors
+// SessionState::pq_ratchet_recv (spqr::recv).
+func (s *SessionState) PQRatchetRecv(msg []byte) (key []byte, err error) {
+	res, err := spqr.Recv(s.structure.GetPqRatchetState(), msg)
+	if err != nil {
+		return nil, fmt.Errorf("session: SPQR recv: %w", err)
+	}
+	s.structure.PqRatchetState = res.State
+	return res.Key, nil
+}
 
 // PendingPreKey reports whether an unacknowledged pre-key message is pending
 // (either the X25519 pending pre-key or the Kyber pending pre-key is set).
