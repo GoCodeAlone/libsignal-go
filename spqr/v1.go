@@ -289,5 +289,178 @@ func (s *v1State) recvCt2ChunkEkSent(chunk *chunked.Chunk) (ns *v1State, key *ep
 	return ns, &epochSecret{epoch: s.epoch, secret: secret}, true, nil
 }
 
-// (send_ct transitions + the send/recv dispatch follow in subsequent WIP
-// commits — this is the in-progress v1 machine, 3/N.)
+// --- send_ct role transitions (send_ct.rs port). The send_ct side receives the
+// header, Encapsulate1s to emit ct1, receives the ek, Encapsulate2s to emit
+// ct2; the ek-received vs ct1-acknowledged events can complete in either order.
+
+// recvHdrChunk (NoHeaderReceived): fold an hdr chunk; when hdr‖mac fully
+// decodes, verify the hdr MAC, store the hdr → HeaderReceived; else stay.
+// ok=false while still receiving. Mirrors recv_hdr_chunk + unchunked recv_header.
+func (s *v1State) recvHdrChunk(chunk *chunked.Chunk) (ns *v1State, ok bool, err error) {
+	s.recvingHdr.AddChunk(chunk)
+	decoded := s.recvingHdr.DecodedMessage()
+	if decoded == nil {
+		return s, false, nil
+	}
+	hdr := decoded[:mlkem768incr.PublicKey1Size]
+	mac := decoded[mlkem768incr.PublicKey1Size:]
+	if err := s.auth.verifyHdr(s.epoch, hdr, mac); err != nil {
+		return nil, false, err
+	}
+	return &v1State{
+		tag: tagHeaderReceived, epoch: s.epoch, auth: s.auth, hdr: hdr,
+	}, true, nil
+}
+
+// sendCt1 (HeaderReceived): Encapsulate1(hdr) → (ct1, es, raw ss); derive the
+// SCKA epoch secret, auth.update(epoch, secret); start the ct1 encoder; → Ct1Sampled.
+// Returns the EpochSecret for the Chain. Mirrors HeaderReceived.send_ct1.
+func (s *v1State) sendCt1(rng io.Reader) (*v1State, chunked.Chunk, *epochSecret, error) {
+	res, err := encapsulate1(s.hdr, rng)
+	if err != nil {
+		return nil, chunked.Chunk{}, nil, err
+	}
+	secret := sckaKey(res.SharedSecret, s.epoch)
+	s.auth.update(s.epoch, secret)
+	enc, err := chunked.NewEncoder(res.Ciphertext1)
+	if err != nil {
+		return nil, chunked.Chunk{}, nil, err
+	}
+	// Receiver for the ek that will arrive (ek is PublicKey2Size).
+	dec, err := chunked.NewDecoder(mlkem768incr.PublicKey2Size)
+	if err != nil {
+		return nil, chunked.Chunk{}, nil, err
+	}
+	chunk := enc.NextChunk()
+	ns := &v1State{
+		tag: tagCt1Sampled, epoch: s.epoch, auth: s.auth,
+		hdr: s.hdr, es: res.EncapsState, ct1: res.Ciphertext1,
+		sendingCt1: enc, recvingEk: dec,
+	}
+	return ns, chunk, &epochSecret{epoch: s.epoch, secret: secret}, nil
+}
+
+// encapsulate1 draws a 32-byte message from rng and runs phase-1 encapsulation.
+// Production wrapper around mlkem768incr.Encapsulate1Internal.
+func encapsulate1(hdr []byte, rng io.Reader) (*mlkem768incr.EncapsulationResult, error) {
+	var m [32]byte
+	if _, err := io.ReadFull(rng, m[:]); err != nil {
+		return nil, fmt.Errorf("spqr: reading encaps message: %w", err)
+	}
+	return mlkem768incr.Encapsulate1Internal(hdr, &m)
+}
+
+// sendCt1Chunk (Ct1Sampled): emit the next ct1 chunk. Stays Ct1Sampled.
+func (s *v1State) sendCt1Chunk() (*v1State, chunked.Chunk) {
+	return s, s.sendingCt1.NextChunk()
+}
+
+// recvEkChunkCt1Sampled (Ct1Sampled): fold an ek chunk; `ack` is true when the
+// chunk also acknowledged ct1 (EkCt1Ack). Branches on whether the ek finished
+// decoding and whether ct1 is acked — ek-done and ct1-acked can arrive in either
+// order. Mirrors Ct1Sampled.recv_ek_chunk + the Ct1SampledRecvChunk variants.
+//   - ek not done, not acked → Ct1Sampled (still both)
+//   - ek done, not acked → Ct1Acknowledged
+//   - ek not done, acked → EkReceivedCt1Sampled
+//   - ek done, acked → finalize (build ek, store) → Ct2Sampled-ready
+func (s *v1State) recvEkChunkCt1Sampled(chunk *chunked.Chunk, ack bool) (*v1State, error) {
+	s.recvingEk.AddChunk(chunk)
+	ek := s.recvingEk.DecodedMessage()
+	ekDone := ek != nil
+
+	switch {
+	case !ekDone && !ack:
+		return s, nil // StillReceivingStillSending
+	case ekDone && !ack:
+		// ek done, ct1 not yet acked → Ct1Acknowledged holds the validated ek.
+		if err := s.validateEk(ek); err != nil {
+			return nil, err
+		}
+		return &v1State{
+			tag: tagCt1Acknowledged, epoch: s.epoch, auth: s.auth,
+			hdr: s.hdr, es: s.es, ek: ek, ct1: s.ct1,
+		}, nil
+	case !ekDone && ack:
+		// acked, ek not done → keep receiving ek in EkReceivedCt1Sampled.
+		return &v1State{
+			tag: tagEkReceivedCt1Sampled, epoch: s.epoch, auth: s.auth,
+			hdr: s.hdr, es: s.es, ct1: s.ct1, recvingEk: s.recvingEk,
+		}, nil
+	default: // ekDone && ack → ready to Encapsulate2 (Ct2Sampled).
+		if err := s.validateEk(ek); err != nil {
+			return nil, err
+		}
+		return s.toCt2Sampled(ek)
+	}
+}
+
+// validateEk checks the received ek matches the header (the ek_matches_header
+// guard). Mirrors Ct1Sent.recv_ek's ek_matches_header check.
+func (s *v1State) validateEk(ek []byte) error {
+	if err := mlkem768incr.ValidatePublicKeyParts(s.hdr, ek); err != nil {
+		return fmt.Errorf("%w: %v", ErrErroneousData, err)
+	}
+	return nil
+}
+
+// toCt2Sampled runs Encapsulate2 (which internally applies the libcrux issue-1275
+// EncapsState endianness fix before the KEM encapsulate2 — the fix lives in
+// mlkem768incr.Encapsulate2, NOT here), MACs ct1‖ct2, and starts the ct2+mac
+// encoder. → Ct2Sampled. Mirrors Ct1SentEkReceived.send_ct2.
+func (s *v1State) toCt2Sampled(ek []byte) (*v1State, error) {
+	ct2, err := mlkem768incr.Encapsulate2(s.es, ek)
+	if err != nil {
+		return nil, fmt.Errorf("spqr: encapsulate2: %w", err)
+	}
+	mac := s.auth.macCt(s.epoch, concat(s.ct1, ct2))
+	enc, err := chunked.NewEncoder(concat(ct2, mac))
+	if err != nil {
+		return nil, err
+	}
+	return &v1State{
+		tag: tagCt2Sampled, epoch: s.epoch, auth: s.auth, sendingCt2: enc,
+	}, nil
+}
+
+// recvEkChunkAcked (EkReceivedCt1Sampled): once ct1 is acked, only the ek is
+// still being received; on Ct1Ack(true)/EkCt1Ack with a completed ek go to
+// Ct2Sampled. Folds ek chunks until done. Mirrors recv_ct1_ack/recv_ek paths.
+func (s *v1State) recvEkChunkAcked(chunk *chunked.Chunk) (*v1State, error) {
+	s.recvingEk.AddChunk(chunk)
+	ek := s.recvingEk.DecodedMessage()
+	if ek == nil {
+		return s, nil
+	}
+	if err := s.validateEk(ek); err != nil {
+		return nil, err
+	}
+	return s.toCt2Sampled(ek)
+}
+
+// recvCt1AckOnly (EkReceivedCt1Sampled): a standalone Ct1Ack(true) when the ek is
+// already fully received. (In practice EkReceivedCt1Sampled is reached only
+// while the ek is still incomplete; the ack-then-ek-completes path is handled by
+// recvEkChunkAcked. This handles a redundant ack with no ek progress: stay.)
+func (s *v1State) recvCt1AckOnly() *v1State { return s }
+
+// recvEkChunkCt1Acknowledged (Ct1Acknowledged): post-ack, fold any out-of-order
+// ek chunks; when ek decodes (already validated on entry) → Ct2Sampled. Mirrors
+// Ct1Acknowledged.recv_ek_chunk. Here the ek was already validated+stored on
+// entry to Ct1Acknowledged, so build ct2 immediately.
+func (s *v1State) ct1AcknowledgedToCt2() (*v1State, error) {
+	return s.toCt2Sampled(s.ek)
+}
+
+// sendCt2Chunk (Ct2Sampled): emit the next ct2 chunk. Stays Ct2Sampled.
+func (s *v1State) sendCt2Chunk() (*v1State, chunked.Chunk) {
+	return s, s.sendingCt2.NextChunk()
+}
+
+// recvNextEpoch (Ct2Sampled): on a message for epoch+1, advance and FLIP to the
+// send_ek role (KeysUnsampled at epoch+1). Mirrors Ct2Sent.recv_next_epoch.
+func (s *v1State) recvNextEpoch(nextEpoch uint64) *v1State {
+	return &v1State{tag: tagKeysUnsampled, epoch: nextEpoch, auth: s.auth}
+}
+
+// (the send/recv dispatch + lib.rs orchestration follow in subsequent WIP
+// commits — this is the in-progress v1 machine.)
