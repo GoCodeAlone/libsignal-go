@@ -524,7 +524,7 @@ func deliveryOrder(n int) []int {
 // is type PreKey and serialized whole; otherwise a plain Whisper SignalMessage.
 func goEncrypt(ctx context.Context, t *testing.T, sess session.Store, id stores.IdentityKeyStore, remote address.ProtocolAddress, pt []byte) ctMsg {
 	t.Helper()
-	signal, preKey, err := session.Encrypt(ctx, pt, remote, sess, id, nil)
+	signal, preKey, err := session.Encrypt(ctx, pt, remote, sess, id, nil, cryptorand.Reader)
 	if err != nil {
 		t.Fatalf("Go Encrypt: %v", err)
 	}

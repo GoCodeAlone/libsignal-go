@@ -103,7 +103,7 @@ func mustPub(t *testing.T, b []byte) curve.PublicKey {
 // what Bob's established session decrypts).
 func (c *convo) aliceEncrypt(t *testing.T, msg []byte) *protocol.SignalMessage {
 	t.Helper()
-	signal, preKey, err := Encrypt(context.Background(), msg, c.bobAddr, c.aliceSess, c.aliceID, nil)
+	signal, preKey, err := Encrypt(context.Background(), msg, c.bobAddr, c.aliceSess, c.aliceID, nil, cryptorand.Reader)
 	if err != nil {
 		t.Fatalf("alice Encrypt: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestCipherConversation(t *testing.T) {
 // Bob's reply, exercised in the ratchet test.)
 func TestCipherPreKeyWrappingUntilReply(t *testing.T) {
 	c := setupConvo(t)
-	signal, preKey, err := Encrypt(context.Background(), []byte("hi"), c.bobAddr, c.aliceSess, c.aliceID, nil)
+	signal, preKey, err := Encrypt(context.Background(), []byte("hi"), c.bobAddr, c.aliceSess, c.aliceID, nil, cryptorand.Reader)
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestCipherFailedDecryptLeavesStoreUnchanged(t *testing.T) {
 func TestCipherStaleSessionEncryptFails(t *testing.T) {
 	c := setupConvo(t)
 	future := func() time.Time { return time.Now().Add(MaxUnacknowledgedSessionAge + time.Hour) }
-	_, _, err := Encrypt(context.Background(), []byte("late"), c.bobAddr, c.aliceSess, c.aliceID, future)
+	_, _, err := Encrypt(context.Background(), []byte("late"), c.bobAddr, c.aliceSess, c.aliceID, future, cryptorand.Reader)
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("stale encrypt err = %v, want ErrSessionNotFound", err)
 	}
@@ -255,7 +255,7 @@ func TestCipherStaleSessionEncryptFails(t *testing.T) {
 func TestCipherEncryptNoSession(t *testing.T) {
 	idStore := newFakeIdentityStore(t, 31, 1)
 	sess := newFakeSessionStore()
-	_, _, err := Encrypt(context.Background(), []byte("x"), protoAddr(t, "+1555nope"), sess, idStore, nil)
+	_, _, err := Encrypt(context.Background(), []byte("x"), protoAddr(t, "+1555nope"), sess, idStore, nil, cryptorand.Reader)
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("no-session encrypt err = %v, want ErrSessionNotFound", err)
 	}
@@ -265,7 +265,7 @@ func TestCipherEncryptNoSession(t *testing.T) {
 // session has no pending pre-key). Returns the SignalMessage Alice decrypts.
 func (c *convo) bobEncrypt(t *testing.T, msg []byte) *protocol.SignalMessage {
 	t.Helper()
-	signal, preKey, err := Encrypt(context.Background(), msg, c.aliceAddr, c.bobSess, c.bobID(t), nil)
+	signal, preKey, err := Encrypt(context.Background(), msg, c.aliceAddr, c.bobSess, c.bobID(t), nil, cryptorand.Reader)
 	if err != nil {
 		t.Fatalf("bob Encrypt: %v", err)
 	}
@@ -314,6 +314,42 @@ func TestCipherRatchetStep(t *testing.T) {
 	// Bob -> Alice again.
 	if got := c.aliceDecrypt(t, c.bobEncrypt(t, []byte("b2"))); !bytes.Equal(got, []byte("b2")) {
 		t.Fatalf("b2: %q", got)
+	}
+}
+
+// TestCipherTripleRatchetOnWire confirms SPQR is actually engaged in the session
+// cipher: an encrypted message carries a non-empty pq_ratchet field, and a
+// full bidirectional conversation still decrypts correctly with the SPQR key
+// mixed into every message key. If the SPQR mix were broken (keys diverging
+// between sender and receiver), decryption would fail the MAC check.
+func TestCipherTripleRatchetOnWire(t *testing.T) {
+	c := setupConvo(t)
+
+	m1 := c.aliceEncrypt(t, []byte("a1"))
+	if len(m1.PQRatchet()) == 0 {
+		t.Fatal("encrypted message carries no pq_ratchet field — SPQR not engaged")
+	}
+	if got := c.bobDecrypt(t, m1); !bytes.Equal(got, []byte("a1")) {
+		t.Fatalf("a1 decrypt with SPQR mix: %q", got)
+	}
+	// Reply (DH ratchet step) — Bob's outbound also carries SPQR, and Alice
+	// decrypts with the mixed key.
+	b1 := c.bobEncrypt(t, []byte("b1"))
+	if len(b1.PQRatchet()) == 0 {
+		t.Fatal("bob's message carries no pq_ratchet field")
+	}
+	if got := c.aliceDecrypt(t, b1); !bytes.Equal(got, []byte("b1")) {
+		t.Fatalf("b1 decrypt with SPQR mix: %q", got)
+	}
+	// A few more rounds to advance epochs and exercise the SPQR ratchet under
+	// the Double Ratchet steps.
+	for i := 0; i < 5; i++ {
+		if got := c.bobDecrypt(t, c.aliceEncrypt(t, []byte("ping"))); !bytes.Equal(got, []byte("ping")) {
+			t.Fatalf("round %d ping: %q", i, got)
+		}
+		if got := c.aliceDecrypt(t, c.bobEncrypt(t, []byte("pong"))); !bytes.Equal(got, []byte("pong")) {
+			t.Fatalf("round %d pong: %q", i, got)
+		}
 	}
 }
 
