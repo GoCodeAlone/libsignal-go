@@ -40,6 +40,12 @@ const (
 // require even lengths.
 var ErrOddLength = errors.New("spqr/encoding: message length must be even")
 
+// ErrSerializationInvalid is returned when an Encoder/Decoder proto has a shape
+// the codec cannot parse (wrong number of polynomial entries, a point list that
+// is not a whole number of points, or both pts and polys populated). Mirrors the
+// reference PolynomialError::SerializationInvalid.
+var ErrSerializationInvalid = errors.New("spqr/encoding: invalid serialized encoder/decoder")
+
 // Chunk is one encoded fragment: a 16-bit index and a fixed 32-byte payload of
 // 16 big-endian GF(2^16) values.
 type Chunk struct {
