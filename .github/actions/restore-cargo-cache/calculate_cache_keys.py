@@ -76,7 +76,15 @@ def read_rust_toolchain_file(path: pathlib.Path) -> Optional[str]:
 
 
 def resolve_toolchain(override: Optional[str]) -> str:
-    """Determine which toolchain spec to use."""
+    """Determine which toolchain spec to use.
+
+    An explicit override wins. Otherwise, fall back to the root ``rust-toolchain``
+    file when present (legacy: the in-repo ``rust/`` workspace pinned it), and
+    finally to ``stable``. The root ``rust-toolchain`` was removed at v0.1.0 with
+    the ``rust/`` reference snapshot; the cargo caches this action serves are for
+    the compat harness crates, which carry their own ``rust-toolchain.toml`` in
+    their crate directories, so a missing root file is normal and must not error.
+    """
     if override:
         return override
 
@@ -85,7 +93,7 @@ def resolve_toolchain(override: Optional[str]) -> str:
     if toolchain_from_file:
         return toolchain_from_file
 
-    raise RuntimeError('Could not determine toolchain')
+    return 'stable'
 
 
 def get_rustc_version(toolchain: str) -> str:
