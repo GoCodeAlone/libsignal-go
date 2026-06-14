@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Toolchain for the drift micro-crate. Starts matching the channel the pinned
-# harness uses (the toolchain upstream v0.91.0 pins); since this crate tracks
+# harness uses (the toolchain upstream v0.96.0 pins — same nightly-2026-03-23 as
+# v0.91.0 did); since this crate tracks
 # upstream `main`, the compat-drift workflow's `main` leg is continue-on-error,
 # so a toolchain skew that breaks the `main` build surfaces as an informational
 # drift signal (a filed issue), never as a PR gate. Bump this channel here if a

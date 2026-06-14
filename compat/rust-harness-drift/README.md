@@ -7,10 +7,10 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 A deliberately minimal sibling of [`../rust-harness`](../rust-harness) that
 tracks upstream [`libsignal`](https://github.com/signalapp/libsignal) **`main`**
-instead of the `v0.91.0` pin. Its sole job is to feed the weekly
+instead of the `v0.96.0` pin. Its sole job is to feed the weekly
 **compat-drift** workflow (`.github/workflows/compat-drift.yml`): regenerate the
 **version-stable** primitive vectors from upstream `main` and diff them against
-the committed `v0.91.0` vectors, so a byte-level change to a primitive we rely
+the committed `v0.96.0` vectors, so a byte-level change to a primitive we rely
 on is caught early — without ever gating a PR.
 
 This is a **dev/CI-only** crate. Nothing in the Go module depends on it; it is
@@ -18,7 +18,7 @@ not published.
 
 ## Why a separate crate
 
-The pinned harness is the behavioral **contract** (`v0.91.0`, ADR 0001). It must
+The pinned harness is the behavioral **contract** (`v0.96.0`, ADR 0001 Stage 2). It must
 not move. This crate floats on `main`, which would make the pinned harness's
 history noisy if they shared a dependency. Splitting them keeps the contract
 stable and the drift probe disposable.

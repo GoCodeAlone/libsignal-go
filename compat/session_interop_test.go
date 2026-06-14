@@ -11,16 +11,18 @@
 // (Go=Alice/Rust=Bob and Rust=Alice/Go=Bob) and with AND without a one-time
 // pre-key (the no-OPK case exercises the optional-DH4 PQXDH path).
 //
-// v0.91.0 sessions are PQXDH/v4 only — X3DH/v3 is removed upstream (the decrypt
-// path returns "X3DH no longer supported"). v0.91.0 ALSO ships the Sparse
-// Post-Quantum Ratchet (SPQR, spqr v1.5.1): initialize_{alice,bob}_session call
-// spqr::initial_state(version V1, min_version V0) unconditionally — there is no
-// UsePQRatchet flag at this tag (that knob was added in a later libsignal
-// version). So both roles negotiate SPQR and every v4 SignalMessage carries a
-// non-empty pq_ratchet field; this suite asserts that and that the Go port mixes
-// the SPQR key correctly in both directions (T28). A v3 decrypt-vector suite is
-// not achievable with the v0.91.0 public API (documented limitation — see
-// compat/README.md); the v4 interop here is the full protocol surface the
+// v0.96.0 sessions are PQXDH/v4 only — X3DH/v3 is removed upstream (the decrypt
+// path returns "X3DH no longer supported"). At v0.96.0 the Sparse Post-Quantum
+// Ratchet (SPQR, spqr v1.5.1) is MANDATORY: initialize_{alice,bob}_session set
+// min_version V1 ("require all clients speak SPQR"). The Go port keeps
+// min_version V0 (it accepts a V0 peer too) but SPEAKS V1, so against the
+// v0.96.0 (min V1) harness the session negotiates V1 both roles — every v4
+// SignalMessage carries a non-empty pq_ratchet field, and the prekey message is
+// accepted by the min-V1 upstream (no floor-mismatch refusal). This suite
+// asserts both (SPQR on the wire both directions + the Go port mixes the SPQR
+// key) — at v0.96.0 it is the REQUIRED path, not a negotiable-down option. A v3
+// decrypt-vector suite is not achievable with the v0.96.0 public API (documented
+// limitation — see compat/README.md); the v4 interop here is the full surface
 // pinned upstream supports.
 //
 // Like the other interop tests this is gated behind the `interop` build tag and
@@ -345,10 +347,11 @@ func TestSessionInteropGoAliceRustBob(t *testing.T) {
 
 			// Bob replies so Alice's session becomes acknowledged (a Whisper).
 			reply := rustEncrypt(t, h, bobHandle, aliceAddr.Name(), []byte("bob reply 0"))
-			// SPQR cross-impl proof: the upstream v0.91.0 harness produces SPQR
-			// (it negotiates V1/min_version V0 unconditionally), so its reply
-			// carries a non-empty pq_ratchet field — and Go decrypting it means the
-			// Go side correctly mixed the SPQR key Rust derived. (Stage 2: SPQR ON.)
+			// SPQR cross-impl proof: at v0.96.0 SPQR is mandatory (min_version V1),
+			// so the upstream reply carries a non-empty pq_ratchet field (V1
+			// negotiated) — and Go decrypting it means the Go side correctly mixed
+			// the SPQR key Rust derived. That Rust=Bob accepted Go's prekey message
+			// above already proved the min-V1 upstream does not refuse Go's session.
 			replyMsg, err := protocol.DeserializeSignalMessage(mustDecodeHex(t, reply.Serialized))
 			if err != nil {
 				t.Fatalf("DeserializeSignalMessage (Rust=Bob reply): %v", err)

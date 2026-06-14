@@ -1330,9 +1330,14 @@ fn session_process_bundle_as_alice(params: &Value) -> Result<Value, String> {
     with_new_store(&handle, |store| {
         let mut rng = interop_rng();
         let remote = protocol_address(&remote_name);
-        // process_prekey_bundle at v0.91.0 takes no local_address.
+        // v0.96.0 added local_address (2nd arg): it feeds is_same_account →
+        // SPQR self_connection. For pairwise interop the local "self" differs
+        // from the remote, so this is the normal (non-self) session, matching the
+        // v0.91.0 behavior where the param did not exist.
+        let local = protocol_address("self");
         process_prekey_bundle(
             &remote,
+            &local,
             &mut store.session_store,
             &mut store.identity_store,
             &bundle,
@@ -1653,8 +1658,13 @@ fn sealed_seal_v2(params: &Value) -> Result<Value, String> {
             InMemSignalProtocolStore::new(recipient_identity, registration_id)
                 .map_err(|e| e.to_string())?;
         let bundle = build_recipient_bundle(&mut recipient_store, registration_id, &mut rng)?;
+        // v0.96.0 added local_address (2nd arg): the sender's own address,
+        // distinct from each recipient ServiceId, so is_same_account is false
+        // (normal cross-account session, as at v0.91.0 before the param existed).
+        let sender_local = protocol_address("self");
         process_prekey_bundle(
             &address,
+            &sender_local,
             &mut sender_store.session_store,
             &mut sender_store.identity_store,
             &bundle,

@@ -19,10 +19,16 @@ edition = "2021"
 members = ["."]
 
 [dependencies]
-# Pinned to a fixed upstream tag (see ADR 0001: v0.91.0, NOT v0.91.1). The
-# rand stack must match upstream's (rand 0.9 family) so a seeded ChaCha20Rng
+# Pinned to the Stage-2 mainline-compat target tag v0.96.0 (ADR 0001 re-pin;
+# T29 advanced it from the Stage-1 pin v0.91.0). v0.96.0 is the latest upstream
+# release and stays within the Scope Manifest — spqr is the same v1.5.1 pin,
+# libcrux-ml-kem the same 0.0.8, and all protocol protos are byte-identical to
+# v0.91.0; the only behavioral change is ratchet.rs min_version V0→V1 (SPQR now
+# mandatory for new sessions), which the ported SPQR + V0-negotiation path
+# already handle (no ADR/amendment needed — see the T29 re-pin notes). The rand
+# stack must match upstream's (rand 0.9 family) so a seeded ChaCha20Rng
 # satisfies the rand_core 0.9 CryptoRng/RngCore bounds the libsignal APIs take.
-libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.91.0", package = "libsignal-protocol" }
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.96.0", package = "libsignal-protocol" }
 rand = "0.9"
 rand_chacha = "0.9"
 rand_core = "0.9"
@@ -32,7 +38,9 @@ rand_core = "0.9"
 futures-util = "0.3"
 # Crypto primitives for the hkdf domain: the chain/root/message-key and
 # pqxdh-secret derivations are pub(crate) upstream, so the harness reproduces
-# them against the same crate versions, matching the v0.91.0 source exactly.
+# them against the same crate versions, matching the v0.96.0 source exactly
+# (these version-stable formulas are unchanged from v0.91.0 — the hkdf vectors
+# are byte-identical across the re-pin).
 hkdf = "0.12"
 hmac = "0.12"
 sha2 = "0.10"
@@ -60,8 +68,9 @@ futures = "0.3"
 # host-independent and free of the cryspen/libcrux#1275 byte-swap (which the Go
 # port handles defensively regardless — see gen_mlkem_incremental).
 libcrux-ml-kem = { version = "=0.0.8", default-features = false, features = ["incremental", "mlkem768", "alloc"] }
-# The SPQR crate itself, pinned to the SAME rev libsignal v0.91.0 pulls in
-# transitively (git tag v1.5.1, rev f2589fe — see Cargo.lock), with `test-utils`
+# The SPQR crate itself, pinned to the SAME rev libsignal pulls in transitively
+# (git tag v1.5.1, rev f2589fe — unchanged between v0.91.0 and the v0.96.0 pin;
+# see Cargo.lock), with `test-utils`
 # enabled. test-utils is a dependency-free feature flag that re-exports SPQR's
 # otherwise pub(crate) `encoding` module (GF16 + the polynomial chunk
 # encoder/decoder). The harness calls encoding::polynomial::PolyEncoder::chunk_at

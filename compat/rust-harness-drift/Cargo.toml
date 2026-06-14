@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Drift micro-crate: a deliberately minimal sibling of compat/rust-harness that
-# tracks upstream libsignal's `main` branch (NOT the v0.91.0 pin) so the weekly
+# tracks upstream libsignal's `main` branch (NOT the v0.96.0 pin) so the weekly
 # compat-drift workflow can detect when upstream changes the bytes of a
 # version-stable primitive. It generates ONLY version-stable domains
 # (curve / hkdf / kem) as KATs and emits the SAME vector JSON schema that
@@ -27,7 +27,7 @@ members = ["."]
 [dependencies]
 # Repointed to upstream `main` (the drift target). The compat-drift workflow
 # may further override this via `cargo update` / a git-dep branch bump; the
-# v0.91.0 contract lives in the sibling compat/rust-harness, not here.
+# v0.96.0 contract lives in the sibling compat/rust-harness, not here.
 libsignal-protocol = { git = "https://github.com/signalapp/libsignal", branch = "main", package = "libsignal-protocol" }
 rand = "0.9"
 rand_chacha = "0.9"

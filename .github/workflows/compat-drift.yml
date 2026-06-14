@@ -4,14 +4,14 @@
 #
 # compat-drift: a scheduled (NOT PR-gating) probe with two legs.
 #
-#   (a) pin leg  — rebuild the v0.91.0-pinned harness, regenerate vectors, and
+#   (a) pin leg  — rebuild the v0.96.0-pinned harness, regenerate vectors, and
 #       run the committed-vector tests. This MUST stay green: a failure means
 #       the pinned harness or its toolchain has rotted (e.g. a yanked transitive
 #       dep, a vanished tag), which is a real alarm worth a red run.
 #
 #   (b) main leg — build the drift micro-crate against upstream `main`,
 #       regenerate the version-stable domains, and diff/test them against the
-#       committed v0.91.0 vectors. This is INFORMATIONAL: it is allowed to fail
+#       committed v0.96.0 vectors. This is INFORMATIONAL: it is allowed to fail
 #       (continue-on-error) and, on failure, files a deduplicated tracking issue
 #       labelled `compat-drift`. A primitive's bytes changing upstream is news,
 #       not a build break.
@@ -37,7 +37,7 @@ jobs:
   # (a) pin leg — must be green.
   # ---------------------------------------------------------------------------
   pin:
-    name: pin (v0.91.0 harness must stay green)
+    name: pin (v0.96.0 harness must stay green)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -68,14 +68,18 @@ jobs:
           set -euo pipefail
           bin="compat/rust-harness/target/release/rust-harness"
           tmp="$(mktemp -d)"
-          for domain in curve kem-decaps hkdf messages fingerprint; do
+          # Full-domain pin leg (Stage 2): the pinned harness has the complete
+          # session/group/sealed RPC surface, so it regenerates every committed
+          # compat/vectors domain — not just the version-stable primitives the
+          # drift micro-crate is limited to. All must reproduce byte-for-byte.
+          for domain in curve kem-decaps hkdf messages fingerprint sessions groups sealedsender; do
             "$bin" gen-vectors "$domain" > "$tmp/$domain.json"
             if ! diff -u "compat/vectors/$domain.json" "$tmp/$domain.json"; then
               echo "::error::pinned harness no longer reproduces compat/vectors/$domain.json"
               exit 1
             fi
           done
-          echo "all committed vectors reproduced byte-for-byte by the v0.91.0 pin"
+          echo "all committed vectors reproduced byte-for-byte by the v0.96.0 pin"
 
       - name: vector consumption tests
         run: go test ./compat/ -v
@@ -118,7 +122,7 @@ jobs:
           cargo build --release
 
       # Regenerate the version-stable domains from `main` and diff against the
-      # committed v0.91.0 vectors. Any difference (or a build failure above) is
+      # committed v0.96.0 vectors. Any difference (or a build failure above) is
       # drift. We capture a short report for the issue body via an env var, never
       # interpolating untrusted input into the shell.
       - name: detect drift
@@ -136,7 +140,7 @@ jobs:
               continue
             fi
             if ! diff -q "compat/vectors/$domain.json" "$tmp/$domain.json" > /dev/null; then
-              drifted="$drifted- $domain: bytes differ from the committed v0.91.0 vectors\n"
+              drifted="$drifted- $domain: bytes differ from the committed v0.96.0 vectors\n"
             fi
           done
           if [ -n "$drifted" ]; then
@@ -173,9 +177,9 @@ jobs:
           if [ "$BUILD_OUTCOME" != "success" ]; then
             body="The compat-drift main leg failed to build the drift crate against upstream \`main\`."$'\n\n'"This may mean upstream \`main\` needs a newer Rust toolchain (bump compat/rust-harness-drift/rust-toolchain.toml) or changed an API the drift crate calls."$'\n\n'"Run: $RUN_URL"
           else
-            body="The drift crate built against upstream \`main\` produced version-stable vectors that differ from the committed v0.91.0 vectors:"$'\n\n'"$(printf "%b" "$DRIFT_REPORT")"$'\n'"Review whether the upstream change affects the pure-Go port; if intentional, re-pin and regenerate the committed vectors. This is informational and does not gate any PR."$'\n\n'"Run: $RUN_URL"
+            body="The drift crate built against upstream \`main\` produced version-stable vectors that differ from the committed v0.96.0 vectors:"$'\n\n'"$(printf "%b" "$DRIFT_REPORT")"$'\n'"Review whether the upstream change affects the pure-Go port; if intentional, re-pin and regenerate the committed vectors. This is informational and does not gate any PR."$'\n\n'"Run: $RUN_URL"
           fi
           gh issue create \
-            --title "compat-drift: upstream main diverges from the v0.91.0 vectors" \
+            --title "compat-drift: upstream main diverges from the v0.96.0 vectors" \
             --label compat-drift \
             --body "$body"

@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Pins the toolchain used to build the compat harness against upstream
-# libsignal-protocol v0.91.0. This mirrors the channel that v0.91.0's own
-# rust-toolchain pins (the harness must compile under the same toolchain as the
-# upstream code it links). rustup fetches this toolchain on demand.
+# libsignal-protocol v0.96.0 (the Stage-2 mainline-compat target). v0.96.0's own
+# rust-toolchain pins the SAME nightly-2026-03-23 as v0.91.0 did, so the T29
+# re-pin needs no toolchain bump (the harness must compile under the same
+# toolchain as the upstream code it links). rustup fetches it on demand.
 
 [toolchain]
 channel = "nightly-2026-03-23"
