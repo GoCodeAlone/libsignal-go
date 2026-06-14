@@ -358,11 +358,13 @@ func (s *v1State) sendCt1Chunk() (*v1State, chunked.Chunk) {
 // recvEkChunkCt1Sampled (Ct1Sampled): fold an ek chunk; `ack` is true when the
 // chunk also acknowledged ct1 (EkCt1Ack). Branches on whether the ek finished
 // decoding and whether ct1 is acked — ek-done and ct1-acked can arrive in either
-// order. Mirrors Ct1Sampled.recv_ek_chunk + the Ct1SampledRecvChunk variants.
-//   - ek not done, not acked → Ct1Sampled (still both)
-//   - ek done, not acked → Ct1Acknowledged
-//   - ek not done, acked → EkReceivedCt1Sampled
-//   - ek done, acked → finalize (build ek, store) → Ct2Sampled-ready
+// order. Mirrors Ct1Sampled.recv_ek_chunk + the Ct1SampledRecvChunk variants:
+//   - ek not done, not acked → StillReceivingStillSending → Ct1Sampled
+//   - ek not done, acked     → StillReceiving           → Ct1Acknowledged (keeps
+//                              the ek decoder; ek may still arrive out of order)
+//   - ek done, not acked     → StillSending → EkReceivedCt1Sampled (stores the
+//                              validated ek in the uc; still sending ct1, no decoder)
+//   - ek done, acked         → Done → Ct2Sampled (Encapsulate2 immediately)
 func (s *v1State) recvEkChunkCt1Sampled(chunk *chunked.Chunk, ack bool) (*v1State, error) {
 	s.recvingEk.AddChunk(chunk)
 	ek := s.recvingEk.DecodedMessage()
@@ -371,20 +373,21 @@ func (s *v1State) recvEkChunkCt1Sampled(chunk *chunked.Chunk, ack bool) (*v1Stat
 	switch {
 	case !ekDone && !ack:
 		return s, nil // StillReceivingStillSending
+	case !ekDone && ack:
+		// acked, ek not done → Ct1Acknowledged keeps the ek decoder live (uc=Ct1Sent).
+		return &v1State{
+			tag: tagCt1Acknowledged, epoch: s.epoch, auth: s.auth,
+			hdr: s.hdr, es: s.es, ct1: s.ct1, recvingEk: s.recvingEk,
+		}, nil
 	case ekDone && !ack:
-		// ek done, ct1 not yet acked → Ct1Acknowledged holds the validated ek.
+		// ek done, ct1 not yet acked → EkReceivedCt1Sampled stores the validated
+		// ek (uc=Ct1SentEkReceived) and keeps sending ct1; no decoder remains.
 		if err := s.validateEk(ek); err != nil {
 			return nil, err
 		}
 		return &v1State{
-			tag: tagCt1Acknowledged, epoch: s.epoch, auth: s.auth,
-			hdr: s.hdr, es: s.es, ek: ek, ct1: s.ct1,
-		}, nil
-	case !ekDone && ack:
-		// acked, ek not done → keep receiving ek in EkReceivedCt1Sampled.
-		return &v1State{
 			tag: tagEkReceivedCt1Sampled, epoch: s.epoch, auth: s.auth,
-			hdr: s.hdr, es: s.es, ct1: s.ct1, recvingEk: s.recvingEk,
+			es: s.es, ek: ek, ct1: s.ct1, sendingCt1: s.sendingCt1,
 		}, nil
 	default: // ekDone && ack → ready to Encapsulate2 (Ct2Sampled).
 		if err := s.validateEk(ek); err != nil {
@@ -422,10 +425,19 @@ func (s *v1State) toCt2Sampled(ek []byte) (*v1State, error) {
 	}, nil
 }
 
-// recvEkChunkAcked (EkReceivedCt1Sampled): once ct1 is acked, only the ek is
-// still being received; on Ct1Ack(true)/EkCt1Ack with a completed ek go to
-// Ct2Sampled. Folds ek chunks until done. Mirrors recv_ct1_ack/recv_ek paths.
-func (s *v1State) recvEkChunkAcked(chunk *chunked.Chunk) (*v1State, error) {
+// recvCt1Ack (EkReceivedCt1Sampled): the ek is already decoded and stored in the
+// uc; a Ct1Ack(true) or EkCt1Ack now means ct1 is acknowledged, so Encapsulate2
+// and advance to Ct2Sampled. Mirrors EkReceivedCt1Sampled.recv_ct1_ack
+// (uc.send_ct2). No decoder is involved.
+func (s *v1State) recvCt1Ack() (*v1State, error) {
+	return s.toCt2Sampled(s.ek)
+}
+
+// recvEkChunkCt1Acknowledged (Ct1Acknowledged): ct1 was acked but the ek is still
+// being received (the decoder is live). Fold the chunk; once the ek decodes,
+// validate it and Encapsulate2 → Ct2Sampled, else stay. Mirrors
+// Ct1Acknowledged.recv_ek_chunk (uc.recv_ek then uc.send_ct2).
+func (s *v1State) recvEkChunkCt1Acknowledged(chunk *chunked.Chunk) (*v1State, error) {
 	s.recvingEk.AddChunk(chunk)
 	ek := s.recvingEk.DecodedMessage()
 	if ek == nil {
@@ -435,20 +447,6 @@ func (s *v1State) recvEkChunkAcked(chunk *chunked.Chunk) (*v1State, error) {
 		return nil, err
 	}
 	return s.toCt2Sampled(ek)
-}
-
-// recvCt1AckOnly (EkReceivedCt1Sampled): a standalone Ct1Ack(true) when the ek is
-// already fully received. (In practice EkReceivedCt1Sampled is reached only
-// while the ek is still incomplete; the ack-then-ek-completes path is handled by
-// recvEkChunkAcked. This handles a redundant ack with no ek progress: stay.)
-func (s *v1State) recvCt1AckOnly() *v1State { return s }
-
-// recvEkChunkCt1Acknowledged (Ct1Acknowledged): post-ack, fold any out-of-order
-// ek chunks; when ek decodes (already validated on entry) → Ct2Sampled. Mirrors
-// Ct1Acknowledged.recv_ek_chunk. Here the ek was already validated+stored on
-// entry to Ct1Acknowledged, so build ct2 immediately.
-func (s *v1State) ct1AcknowledgedToCt2() (*v1State, error) {
-	return s.toCt2Sampled(s.ek)
 }
 
 // sendCt2Chunk (Ct2Sampled): emit the next ct2 chunk. Stays Ct2Sampled.
@@ -618,30 +616,26 @@ func (s *v1State) recv(msg *v1Message) (*v1Recv, error) {
 		if msg.epoch > s.epoch {
 			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
 		}
-		if msg.epoch == s.epoch {
-			switch msg.kind {
-			case payloadEkCt1Ack:
-				ns, err := s.recvEkChunkAcked(&msg.chunk)
-				if err != nil {
-					return nil, err
-				}
-				return &v1Recv{state: ns}, nil
-			case payloadCt1Ack:
-				if msg.ct1Ack {
-					return &v1Recv{state: s.recvCt1AckOnly()}, nil
-				}
+		// ek is already decoded+stored; a ct1 acknowledgement (Ct1Ack(true) or
+		// EkCt1Ack) means Encapsulate2 and advance. Any EkCt1Ack chunk is ignored
+		// (the ek is already in hand). Mirrors EkReceivedCt1Sampled.recv_ct1_ack.
+		if msg.epoch == s.epoch &&
+			(msg.kind == payloadEkCt1Ack || (msg.kind == payloadCt1Ack && msg.ct1Ack)) {
+			ns, err := s.recvCt1Ack()
+			if err != nil {
+				return nil, err
 			}
+			return &v1Recv{state: ns}, nil
 		}
 		return &v1Recv{state: s}, nil
 	case tagCt1Acknowledged:
 		if msg.epoch > s.epoch {
 			return nil, fmt.Errorf("%w: %d", ErrEpochOutOfRangeV1, msg.epoch)
 		}
-		// Post-ack, the ek was already validated+stored on entry; once present,
-		// build ct2. (OOO ek chunks would be folded here in the reference; our
-		// Ct1Acknowledged stores the completed ek, so advance to Ct2Sampled.)
+		// ct1 already acked but the ek is still arriving; fold any Ek/EkCt1Ack
+		// chunk and advance once the ek decodes. Mirrors Ct1Acknowledged.recv_ek_chunk.
 		if msg.epoch == s.epoch && (msg.kind == payloadEk || msg.kind == payloadEkCt1Ack) {
-			ns, err := s.ct1AcknowledgedToCt2()
+			ns, err := s.recvEkChunkCt1Acknowledged(&msg.chunk)
 			if err != nil {
 				return nil, err
 			}
