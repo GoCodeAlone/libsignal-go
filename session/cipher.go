@@ -79,7 +79,7 @@ func Encrypt(
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrSessionNotFound, err)
 	}
-	mk, err := chainKey.MessageKeys()
+	mk, err := chainKey.MessageKeys().GenerateKeys(nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("session: deriving message keys: %w", err)
 	}
@@ -315,7 +315,7 @@ func getOrCreateMessageKeys(state *SessionState, theirRatchet curve.PublicKey, c
 	// Step the chain to counter, caching each skipped message's keys.
 	ck := chainKey
 	for ck.Index() < counter {
-		skipped, err := ck.MessageKeys()
+		skipped, err := ck.MessageKeys().GenerateKeys(nil)
 		if err != nil {
 			return MessageKeyAt{}, fmt.Errorf("session: skipped message keys: %w", err)
 		}
@@ -327,7 +327,7 @@ func getOrCreateMessageKeys(state *SessionState, theirRatchet curve.PublicKey, c
 	if err := state.SetReceiverChainKey(theirRatchet, ck.Next()); err != nil {
 		return MessageKeyAt{}, err
 	}
-	mk, err := ck.MessageKeys()
+	mk, err := ck.MessageKeys().GenerateKeys(nil)
 	if err != nil {
 		return MessageKeyAt{}, fmt.Errorf("session: message keys: %w", err)
 	}

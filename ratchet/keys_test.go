@@ -115,7 +115,7 @@ func TestChainKeyMessageKeys(t *testing.T) {
 		if err != nil {
 			t.Fatalf("case %d: NewChainKey: %v", i, err)
 		}
-		mk, err := ck.MessageKeys()
+		mk, err := ck.MessageKeys().GenerateKeys(nil)
 		if err != nil {
 			t.Fatalf("case %d: MessageKeys: %v", i, err)
 		}
@@ -329,7 +329,7 @@ func TestChainKeyAdvances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewChainKey: %v", err)
 	}
-	mk0, err := ck.MessageKeys()
+	mk0, err := ck.MessageKeys().GenerateKeys(nil)
 	if err != nil {
 		t.Fatalf("MessageKeys: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestChainKeyAdvances(t *testing.T) {
 	if bytes.Equal(next.Key(), ck.Key()) {
 		t.Fatal("Next() did not change the chain key")
 	}
-	mk1, err := next.MessageKeys()
+	mk1, err := next.MessageKeys().GenerateKeys(nil)
 	if err != nil {
 		t.Fatalf("MessageKeys after Next: %v", err)
 	}
@@ -349,6 +349,111 @@ func TestChainKeyAdvances(t *testing.T) {
 	}
 	if mk1.Index() != 1 {
 		t.Fatalf("mk1 index = %d, want 1", mk1.Index())
+	}
+}
+
+// TestMessageKeyGeneratorPQRMix verifies the SPQR triple-ratchet mix at the
+// key-derivation layer: a nil/empty PQR key must reproduce the exact pre-SPQR
+// derivation (HKDF salt=nil), while a non-empty PQR key must fold in as the
+// HKDF salt and change every derived key. This is the backward-compat + actual-
+// mix guarantee for the session integration (T28).
+func TestMessageKeyGeneratorPQRMix(t *testing.T) {
+	ck, err := NewChainKey(bytes.Repeat([]byte{0x42}, chainKeyLen), 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// nil PQR key == empty PQR key == the original derivation.
+	base, err := ck.MessageKeys().GenerateKeys(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := ck.MessageKeys().GenerateKeys([]byte{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(base.CipherKey(), empty.CipherKey()) ||
+		!bytes.Equal(base.MACKey(), empty.MACKey()) ||
+		!bytes.Equal(base.IV(), empty.IV()) {
+		t.Fatal("empty PQR key must derive identically to nil (no salt)")
+	}
+	if base.Index() != 5 {
+		t.Fatalf("counter not preserved: got %d want 5", base.Index())
+	}
+
+	// A non-empty PQR key folds in as the HKDF salt and changes the keys.
+	pqr := bytes.Repeat([]byte{0x99}, 32)
+	mixed, err := ck.MessageKeys().GenerateKeys(pqr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(base.CipherKey(), mixed.CipherKey()) ||
+		bytes.Equal(base.MACKey(), mixed.MACKey()) ||
+		bytes.Equal(base.IV(), mixed.IV()) {
+		t.Fatal("PQR key did not change the derived message keys")
+	}
+	// Different PQR keys produce different message keys (the salt actually matters).
+	mixed2, err := ck.MessageKeys().GenerateKeys(bytes.Repeat([]byte{0x88}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(mixed.CipherKey(), mixed2.CipherKey()) {
+		t.Fatal("distinct PQR keys produced identical message keys")
+	}
+}
+
+// TestMessageKeyGeneratorVariants covers the Seed and Keys variants: a Seed
+// generator exposes its seed/counter and derives; a Keys generator returns the
+// wrapped keys and rejects a supplied PQR key (pre-SPQR cached keys never mix).
+func TestMessageKeyGeneratorVariants(t *testing.T) {
+	ck, _ := NewChainKey(bytes.Repeat([]byte{0x42}, chainKeyLen), 5)
+
+	g := ck.MessageKeys()
+	if !g.FromSeed() {
+		t.Fatal("ChainKey.MessageKeys() must yield a Seed-variant generator")
+	}
+	seed, counter, ok := g.Seed()
+	if !ok || counter != 5 || len(seed) != 32 {
+		t.Fatalf("Seed() = (%d bytes, counter %d, ok %v)", len(seed), counter, ok)
+	}
+
+	// Round-trip a Seed generator rebuilt from the exposed seed/counter.
+	rebuilt := NewMessageKeyGeneratorFromSeed(seed, counter)
+	a, _ := g.GenerateKeys(nil)
+	b, _ := rebuilt.GenerateKeys(nil)
+	if !bytes.Equal(a.CipherKey(), b.CipherKey()) || a.Index() != b.Index() {
+		t.Fatal("Seed round-trip changed the derived keys")
+	}
+
+	// Keys variant: returns the wrapped keys; rejects a PQR key.
+	mk, _ := g.GenerateKeys(nil)
+	kg := NewMessageKeyGeneratorFromKeys(mk)
+	if kg.FromSeed() {
+		t.Fatal("Keys-variant generator must report FromSeed()==false")
+	}
+	if got, _ := kg.GenerateKeys(nil); !bytes.Equal(got.CipherKey(), mk.CipherKey()) {
+		t.Fatal("Keys variant did not return the wrapped keys")
+	}
+	if _, err := kg.GenerateKeys(bytes.Repeat([]byte{0x01}, 32)); err == nil {
+		t.Fatal("Keys variant must reject a supplied PQR key")
+	}
+}
+
+// TestNewMessageKeysValidation confirms NewMessageKeys rejects wrong-length
+// component slices.
+func TestNewMessageKeysValidation(t *testing.T) {
+	good := func(n int) []byte { return make([]byte, n) }
+	if _, err := NewMessageKeys(good(cipherKeyLen), good(macKeyLen), good(ivLen), 0); err != nil {
+		t.Fatalf("valid lengths rejected: %v", err)
+	}
+	if _, err := NewMessageKeys(good(31), good(macKeyLen), good(ivLen), 0); err == nil {
+		t.Fatal("short cipher key accepted")
+	}
+	if _, err := NewMessageKeys(good(cipherKeyLen), good(33), good(ivLen), 0); err == nil {
+		t.Fatal("wrong-length MAC key accepted")
+	}
+	if _, err := NewMessageKeys(good(cipherKeyLen), good(macKeyLen), good(15), 0); err == nil {
+		t.Fatal("short IV accepted")
 	}
 }
 
@@ -373,7 +478,7 @@ func TestStringRedaction(t *testing.T) {
 	if got := rk.String(); !bytes.Contains([]byte(got), []byte("redacted")) || bytes.Contains([]byte(got), []byte("2222")) {
 		t.Fatalf("RootKey.String() leaks material or missing redaction: %q", got)
 	}
-	mk, _ := ck.MessageKeys()
+	mk, _ := ck.MessageKeys().GenerateKeys(nil)
 	if got := mk.String(); !bytes.Contains([]byte(got), []byte("redacted")) {
 		t.Fatalf("MessageKeys.String() missing redaction: %q", got)
 	}
@@ -388,7 +493,7 @@ func TestFormatRedaction(t *testing.T) {
 	// Distinctive byte patterns; their hex must never appear in any formatting.
 	ck, _ := NewChainKey(bytes.Repeat([]byte{0xAB}, chainKeyLen), 9)
 	rk, _ := NewRootKey(bytes.Repeat([]byte{0xCD}, rootKeyLen))
-	mk, _ := ck.MessageKeys() // derives distinct cipher/mac/iv from the chain key
+	mk, _ := ck.MessageKeys().GenerateKeys(nil) // derives distinct cipher/mac/iv from the chain key
 	// InitialKeys with a distinctive PQR seed (0xEE) so a leak is detectable;
 	// the embedded keys also carry distinctive bytes.
 	ik := InitialKeys{RootKey: rk, ChainKey: ck, PQRSeed: [32]byte(bytes.Repeat([]byte{0xEE}, 32))}
