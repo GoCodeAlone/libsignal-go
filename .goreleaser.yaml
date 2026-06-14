@@ -30,11 +30,12 @@ changelog:
       - "Merge pull request"
       - "Merge branch"
   groups:
+    # Conventional-commit prefixes, optional scope, optional breaking `!`.
     - title: Features
-      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      regexp: '^.*feat(\(.+\))?!?:.+$'
       order: 0
     - title: Bug fixes
-      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      regexp: '^.*fix(\(.+\))?!?:.+$'
       order: 1
     - title: Others
       order: 999
