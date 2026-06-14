@@ -1,15 +1,26 @@
 # libsignal-go
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/GoCodeAlone/libsignal-go.svg)](https://pkg.go.dev/github.com/GoCodeAlone/libsignal-go)
+[![CI](https://github.com/GoCodeAlone/libsignal-go/actions/workflows/go.yml/badge.svg)](https://github.com/GoCodeAlone/libsignal-go/actions/workflows/go.yml)
+[![compat](https://github.com/GoCodeAlone/libsignal-go/actions/workflows/compat.yml/badge.svg)](https://github.com/GoCodeAlone/libsignal-go/actions/workflows/compat.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/GoCodeAlone/libsignal-go)](https://goreportcard.com/report/github.com/GoCodeAlone/libsignal-go)
+[![Release](https://img.shields.io/github/v/release/GoCodeAlone/libsignal-go?sort=semver)](https://github.com/GoCodeAlone/libsignal-go/releases)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+
 A pure-Go implementation of the Signal client protocol core, wire-compatible
 with [`signalapp/libsignal`](https://github.com/signalapp/libsignal).
+
+> **Independent fork** — a community reimplementation, **not affiliated with,
+> endorsed by, or maintained by Signal Messenger LLC.** Report issues and
+> security vulnerabilities in *this* port to this repository (see
+> [`SECURITY.md`](SECURITY.md)) — **not** to Signal.
 
 `libsignal-go` is built entirely on the Go standard library and a small set of
 pure-Go cryptography dependencies. **There is no cgo, C, or Rust in the
 shipped module** — it builds with `CGO_ENABLED=0` and cross-compiles like any
 ordinary Go package. The goal is byte-for-byte wire compatibility with the
-upstream Rust implementation for the client-side protocol surface, to be
-enforced by cross-implementation compatibility checks as required CI gates
-(landing in P4).
+upstream Rust implementation for the client-side protocol surface, enforced by
+cross-implementation compatibility checks as required CI gates.
 
 > Status: **`v0.1.0` released** — the full client protocol is implemented and
 > interop-verified byte-compatible with libsignal v0.96.0 (both roles). Early
