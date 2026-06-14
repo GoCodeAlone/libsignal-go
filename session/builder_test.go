@@ -298,6 +298,83 @@ func TestBuilderAliceBobRoundTrip(t *testing.T) {
 	}
 }
 
+// TestBuilderInitializesAgreedSPQRState confirms both session inits populate a
+// non-empty SPQR state and that, because both sides derive the same PQXDH PQR
+// seed (the SPQR auth_key), those states drive a lockstep where the SPQR keys
+// agree both directions. This exercises C3 (session-init SPQR wiring) end to
+// end through the C2 send/recv wrappers.
+func TestBuilderInitializesAgreedSPQRState(t *testing.T) {
+	bobIdentity := genCurve(t, 21)
+	bobSignedPre := genCurve(t, 22)
+	bobKyber := genKyber(t, 23)
+	aliceIdentity := genCurve(t, 24)
+	aliceBase := genCurve(t, 26)
+
+	aliceState, err := initializeAliceSession(&fixedReaderB{b: 27}, aliceParams{
+		ourIdentity:    aliceIdentity,
+		ourBase:        aliceBase,
+		theirIdentity:  bobIdentity.PublicKey,
+		theirSignedPre: bobSignedPre.PublicKey,
+		theirKyber:     bobKyber.PublicKey,
+	})
+	if err != nil {
+		t.Fatalf("initializeAliceSession: %v", err)
+	}
+	kyberCT, ok := aliceState.UnacknowledgedKyberCiphertext()
+	if !ok {
+		t.Fatal("alice has no pending Kyber ciphertext")
+	}
+	bobState, err := InitializeBobSession(BobParams{
+		OurIdentity:   bobIdentity,
+		OurSignedPre:  bobSignedPre,
+		OurKyber:      bobKyber,
+		TheirIdentity: aliceIdentity.PublicKey,
+		TheirBaseKey:  aliceBase.PublicKey,
+		KyberCipher:   kyberCT,
+	})
+	if err != nil {
+		t.Fatalf("InitializeBobSession: %v", err)
+	}
+
+	// Both sides must have a non-empty SPQR state.
+	if len(aliceState.PQRatchetState()) == 0 || len(bobState.PQRatchetState()) == 0 {
+		t.Fatalf("SPQR state not initialized: alice=%d bytes bob=%d bytes",
+			len(aliceState.PQRatchetState()), len(bobState.PQRatchetState()))
+	}
+	// The two states must interoperate: a lockstep produces agreeing SPQR keys.
+	sawKey := false
+	for i := 0; i < 10; i++ {
+		msg, sk, err := aliceState.PQRatchetSend(&fixedReaderB{b: byte(30 + i)})
+		if err != nil {
+			t.Fatalf("step %d alice SPQR send: %v", i, err)
+		}
+		rk, err := bobState.PQRatchetRecv(msg)
+		if err != nil {
+			t.Fatalf("step %d bob SPQR recv: %v", i, err)
+		}
+		if !bytes.Equal(sk, rk) {
+			t.Fatalf("step %d SPQR key mismatch A->B: %x vs %x", i, sk, rk)
+		}
+		msg, sk, err = bobState.PQRatchetSend(&fixedReaderB{b: byte(60 + i)})
+		if err != nil {
+			t.Fatalf("step %d bob SPQR send: %v", i, err)
+		}
+		rk, err = aliceState.PQRatchetRecv(msg)
+		if err != nil {
+			t.Fatalf("step %d alice SPQR recv: %v", i, err)
+		}
+		if !bytes.Equal(sk, rk) {
+			t.Fatalf("step %d SPQR key mismatch B->A: %x vs %x", i, sk, rk)
+		}
+		if sk != nil {
+			sawKey = true
+		}
+	}
+	if !sawKey {
+		t.Fatal("SPQR produced no key over the lockstep — auth keys likely diverged")
+	}
+}
+
 // TestBuilderBobRequiresKyberCiphertext confirms the recipient side rejects a
 // missing Kyber ciphertext (v4 requires it).
 func TestBuilderBobRequiresKyberCiphertext(t *testing.T) {
