@@ -7,16 +7,18 @@
 // serializes to the same SessionStructure / RecordStructure protobufs as
 // upstream libsignal v0.91.0.
 //
-// Compatibility staging: sessions negotiate at the v0.91.0 surface, where the
-// Sparse Post-Quantum Ratchet (SPQR) is optional — the pq_ratchet message field
-// and pq_ratchet_state are parsed and preserved but not produced. SPQR
-// negotiation lands in the P10 phase, after which the compat pin is upgraded to
-// upstream mainline; see decisions/0001-spqr-staged-compat.md and the README
-// scope matrix.
+// Compatibility staging: sessions negotiate at the v0.91.0 surface, which ships
+// the Sparse Post-Quantum Ratchet (SPQR) as an optional layer. The session
+// drives SPQR through PQRatchetSend / PQRatchetRecv (the pq_ratchet message
+// field and pq_ratchet_state), mixing the SPQR key into the Double Ratchet
+// message keys; min_version V0 means a peer that does not speak SPQR still
+// interoperates (the key contribution is empty and the derivation is unchanged).
+// See decisions/0001-spqr-staged-compat.md and the README scope matrix.
 package session
 
 import (
 	"fmt"
+	"io"
 	"time"
 
 	googleproto "google.golang.org/protobuf/proto"
@@ -24,6 +26,7 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/proto"
 	"github.com/GoCodeAlone/libsignal-go/ratchet"
+	"github.com/GoCodeAlone/libsignal-go/spqr"
 )
 
 // Bounds from rust/protocol/src/consts.rs. These cap unbounded growth of the
@@ -130,13 +133,43 @@ func (s *SessionState) AliceBaseKey() []byte { return s.structure.GetAliceBaseKe
 // SetAliceBaseKey records the Alice base key used to match sessions.
 func (s *SessionState) SetAliceBaseKey(key []byte) { s.structure.AliceBaseKey = cloneBytes(key) }
 
-// PQRatchetState returns the opaque post-quantum ratchet (SPQR) state bytes.
-// This package treats it as an opaque blob — it is preserved verbatim through
-// serialize/deserialize and never interpreted here.
+// PQRatchetState returns the serialized Sparse Post-Quantum Ratchet (SPQR)
+// state bytes. The session layer drives it through PQRatchetSend / PQRatchetRecv;
+// it is also preserved verbatim through serialize/deserialize.
 func (s *SessionState) PQRatchetState() []byte { return s.structure.GetPqRatchetState() }
 
-// SetPQRatchetState stores the opaque SPQR state bytes.
+// SetPQRatchetState stores the serialized SPQR state bytes.
 func (s *SessionState) SetPQRatchetState(b []byte) { s.structure.PqRatchetState = cloneBytes(b) }
+
+// PQRatchetSend advances the SPQR send ratchet one step: it produces the
+// outbound SPQR message to attach to the ciphertext (the SignalMessage
+// pq_ratchet field) and the SPQR message key to mix into the Double Ratchet
+// message keys, updating the stored SPQR state in place. A nil/empty returned
+// key means SPQR contributed no key this message (V0 / still negotiating), in
+// which case the message-key derivation is unchanged. Mirrors
+// SessionState::pq_ratchet_send (spqr::send). rng must be a CSPRNG.
+func (s *SessionState) PQRatchetSend(rng io.Reader) (msg []byte, key []byte, err error) {
+	res, err := spqr.Send(s.structure.GetPqRatchetState(), rng)
+	if err != nil {
+		return nil, nil, fmt.Errorf("session: SPQR send: %w", err)
+	}
+	s.structure.PqRatchetState = res.State
+	return res.Msg, res.Key, nil
+}
+
+// PQRatchetRecv advances the SPQR receive ratchet one step from an inbound SPQR
+// message (the SignalMessage pq_ratchet field), returning the SPQR message key
+// to mix into the Double Ratchet message keys and updating the stored SPQR state
+// in place. A nil/empty returned key means SPQR contributed no key. Mirrors
+// SessionState::pq_ratchet_recv (spqr::recv).
+func (s *SessionState) PQRatchetRecv(msg []byte) (key []byte, err error) {
+	res, err := spqr.Recv(s.structure.GetPqRatchetState(), msg)
+	if err != nil {
+		return nil, fmt.Errorf("session: SPQR recv: %w", err)
+	}
+	s.structure.PqRatchetState = res.State
+	return res.Key, nil
+}
 
 // PendingPreKey reports whether an unacknowledged pre-key message is pending
 // (either the X25519 pending pre-key or the Kyber pending pre-key is set).
@@ -365,29 +398,23 @@ func (s *SessionState) SetReceiverChainKey(senderRatchetKey curve.PublicKey, cha
 	return nil
 }
 
-// MessageKeyAt holds a cached (skipped) set of message keys with its index.
-type MessageKeyAt struct {
-	Index     uint32
-	CipherKey []byte
-	MacKey    []byte
-	IV        []byte
-}
-
-// CacheMessageKeys inserts skipped message keys at the front of the matching
-// receiver chain's cache, evicting the oldest (tail) when the count exceeds
-// MaxMessageKeys (SessionState::set_message_keys: insert(0) then pop over cap).
-func (s *SessionState) CacheMessageKeys(senderRatchetKey curve.PublicKey, mk MessageKeyAt) error {
+// CacheMessageKeys inserts a skipped message's key generator at the front of the
+// matching receiver chain's cache, evicting the oldest (tail) when the count
+// exceeds MaxMessageKeys (SessionState::set_message_keys: insert(0) then pop over
+// cap). The generator is stored in its proto form — the SEED for a deferred
+// (Seed) generator (so the Sparse Post-Quantum Ratchet key for that specific
+// skipped message can be mixed in when it later arrives) or the derived keys for
+// a materialized (Keys) generator. Mirrors MessageKeyGenerator::into_pb.
+func (s *SessionState) CacheMessageKeys(senderRatchetKey curve.PublicKey, gen ratchet.MessageKeyGenerator) error {
 	idx := s.receiverChainIndex(senderRatchetKey)
 	if idx < 0 {
 		return fmt.Errorf("session: no receiver chain to cache message keys for")
 	}
-	chain := s.structure.ReceiverChains[idx]
-	entry := &proto.SessionStructure_Chain_MessageKey{
-		Index:     mk.Index,
-		CipherKey: cloneBytes(mk.CipherKey),
-		MacKey:    cloneBytes(mk.MacKey),
-		Iv:        cloneBytes(mk.IV),
+	entry, err := messageKeyGenToProto(gen)
+	if err != nil {
+		return err
 	}
+	chain := s.structure.ReceiverChains[idx]
 	chain.MessageKeys = append([]*proto.SessionStructure_Chain_MessageKey{entry}, chain.MessageKeys...)
 	if len(chain.MessageKeys) > MaxMessageKeys {
 		chain.MessageKeys = chain.MessageKeys[:MaxMessageKeys]
@@ -395,28 +422,71 @@ func (s *SessionState) CacheMessageKeys(senderRatchetKey curve.PublicKey, mk Mes
 	return nil
 }
 
-// TakeMessageKeys removes and returns the cached message keys at the given
-// index on the matching receiver chain, if present. The second return is false
-// when no matching cached entry exists.
-func (s *SessionState) TakeMessageKeys(senderRatchetKey curve.PublicKey, index uint32) (MessageKeyAt, bool, error) {
+// TakeMessageKeys removes and returns the cached message-key generator at the
+// given index on the matching receiver chain, if present. The second return is
+// false when no matching cached entry exists. Mirrors get_message_keys +
+// MessageKeyGenerator::from_pb (the caller derives the final keys, mixing in the
+// per-message SPQR key).
+func (s *SessionState) TakeMessageKeys(senderRatchetKey curve.PublicKey, index uint32) (ratchet.MessageKeyGenerator, bool, error) {
 	idx := s.receiverChainIndex(senderRatchetKey)
 	if idx < 0 {
-		return MessageKeyAt{}, false, fmt.Errorf("session: no receiver chain")
+		return ratchet.MessageKeyGenerator{}, false, fmt.Errorf("session: no receiver chain")
 	}
 	chain := s.structure.ReceiverChains[idx]
 	for i, e := range chain.MessageKeys {
 		if e.GetIndex() == index {
-			out := MessageKeyAt{
-				Index:     e.GetIndex(),
-				CipherKey: cloneBytes(e.GetCipherKey()),
-				MacKey:    cloneBytes(e.GetMacKey()),
-				IV:        cloneBytes(e.GetIv()),
+			gen, err := messageKeyGenFromProto(e)
+			if err != nil {
+				return ratchet.MessageKeyGenerator{}, false, err
 			}
 			chain.MessageKeys = append(chain.MessageKeys[:i], chain.MessageKeys[i+1:]...)
-			return out, true, nil
+			return gen, true, nil
 		}
 	}
-	return MessageKeyAt{}, false, nil
+	return ratchet.MessageKeyGenerator{}, false, nil
+}
+
+// messageKeyGenToProto serializes a MessageKeyGenerator to the proto cache entry.
+// A Seed (deferred) generator stores its seed + index with empty key fields; a
+// Keys (materialized) generator stores the derived cipher/mac/iv + index with an
+// empty seed. Mirrors MessageKeyGenerator::into_pb.
+//
+// The Keys-variant materialization passes a nil PQR key, so GenerateKeys cannot
+// error on this path (it only rejects a non-nil PQR key on an already-derived
+// generator); the error is propagated rather than discarded for robustness, so
+// any future change to that contract surfaces as a clean error, not a panic or
+// silent zero-value entry.
+func messageKeyGenToProto(gen ratchet.MessageKeyGenerator) (*proto.SessionStructure_Chain_MessageKey, error) {
+	if seed, counter, ok := gen.Seed(); ok {
+		return &proto.SessionStructure_Chain_MessageKey{Index: counter, Seed: seed}, nil
+	}
+	// Keys variant: materialize (no PQR key — Keys-variant generators are
+	// pre-SPQR cached keys) and store the derived components.
+	mk, err := gen.GenerateKeys(nil)
+	if err != nil {
+		return nil, fmt.Errorf("session: encoding cached message key: %w", err)
+	}
+	return &proto.SessionStructure_Chain_MessageKey{
+		Index:     mk.Index(),
+		CipherKey: mk.CipherKey(),
+		MacKey:    mk.MACKey(),
+		Iv:        mk.IV(),
+	}, nil
+}
+
+// messageKeyGenFromProto reconstructs a MessageKeyGenerator from a proto cache
+// entry: a non-empty seed yields a deferred Seed generator (the per-message SPQR
+// key is mixed in at GenerateKeys time); otherwise the stored derived keys yield
+// a Keys generator. Mirrors MessageKeyGenerator::from_pb.
+func messageKeyGenFromProto(pb *proto.SessionStructure_Chain_MessageKey) (ratchet.MessageKeyGenerator, error) {
+	if len(pb.GetSeed()) != 0 {
+		return ratchet.NewMessageKeyGeneratorFromSeed(pb.GetSeed(), pb.GetIndex()), nil
+	}
+	mk, err := ratchet.NewMessageKeys(pb.GetCipherKey(), pb.GetMacKey(), pb.GetIv(), pb.GetIndex())
+	if err != nil {
+		return ratchet.MessageKeyGenerator{}, fmt.Errorf("session: decoding cached message key: %w", err)
+	}
+	return ratchet.NewMessageKeyGeneratorFromKeys(mk), nil
 }
 
 // Clone returns a deep copy of the state (independent proto).

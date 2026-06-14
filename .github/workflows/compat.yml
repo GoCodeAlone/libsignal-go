@@ -2,7 +2,7 @@
 # Copyright 2026 libsignal-go contributors.
 # SPDX-License-Identifier: AGPL-3.0-only
 #
-# compat-interop: builds the v0.91.0-pinned Rust harness and runs the live
+# compat-interop: builds the v0.96.0-pinned Rust harness and runs the live
 # JSON-RPC interop tests (compat/interop_test.go, build tag `interop`) against
 # it, asserting the pure-Go implementation agrees with upstream on live
 # operations. The committed-vector tests run in the `go` workflow with no Rust

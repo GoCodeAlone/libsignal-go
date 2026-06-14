@@ -155,6 +155,7 @@ const N_SESSIONS_NO_OPK: u32 = 24;
 const N_GROUPS_SETS: u32 = 8;
 const N_GROUPS_DERIVATIONS: u32 = 24;
 const N_SEALEDSENDER_CASES: u32 = 12;
+const N_MLKEM_INCREMENTAL_CASES: u32 = 24;
 
 fn gen_vectors(domain: &str) -> Result<(), String> {
     // Every batch carries a {domain, seed} header. Most domains add a flat
@@ -198,10 +199,50 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
         "sealedsender" => {
             obj.insert("cases".into(), Value::Array(gen_sealedsender()));
         }
+        "mlkem-incremental" => {
+            // Provenance note: pins the generating crate revisions and records
+            // which libcrux backend produced the raw `encaps_state`. With
+            // simd128/simd256 OFF (this harness depends on libcrux-ml-kem with
+            // default-features=false + features=incremental/mlkem768/alloc),
+            // libcrux always uses the PORTABLE backend, whose EncapsState i16
+            // serialization is correct little-endian — so `encaps_state` (raw)
+            // already equals `encaps_state_fixed` on every host. If a future
+            // build enables a SIMD backend (NEON on aarch64, AVX2 on x86), the
+            // raw field would carry the cryspen/libcrux#1275 byte-swap and would
+            // differ from `encaps_state_fixed` — that is a backend difference,
+            // NOT corruption or a regression. Regenerate (see README) if the
+            // pinned revs below change.
+            obj.insert(
+                "_note".into(),
+                json!({
+                    "encaps_state_backend": "libcrux portable (simd128/simd256 disabled); raw == fixed on all hosts",
+                    "libcrux_ml_kem": "0.0.8 (registry, =0.0.8 in compat/rust-harness/Cargo.toml; checksum-pinned in Cargo.lock)",
+                    "spqr_reference": "1.5.1 (git tag v1.5.1, rev f2589fef855c10f39d72634dab3d14654dd410bf; issue-1275 fix reproduced inline in gen_mlkem_incremental since SPQR's wrapper is pub(crate))",
+                    "issue_1275": "https://github.com/cryspen/libcrux/issues/1275 — SIMD-backend EncapsState i16 endianness",
+                }),
+            );
+            obj.insert("cases".into(), Value::Array(gen_mlkem_incremental()));
+        }
+        "spqr-chunks" => {
+            // Golden BE-u16 chunk vectors + GF16 mul/div triples captured from
+            // the SPQR v1.5.1 crate (test-utils feature). Pins the big-endian
+            // point/coefficient wire serialization that the erasure property
+            // test cannot see (encoder+decoder share their convention).
+            obj.insert(
+                "_note".into(),
+                json!({
+                    "spqr_reference": "1.5.1 (git tag v1.5.1, rev f2589fef855c10f39d72634dab3d14654dd410bf, test-utils feature)",
+                    "endianness": "GF16 points/coefficients serialize BIG-endian u16 (encoding/polynomial.rs Pt::serialize, Poly::serialize, chunk_at) — OPPOSITE of the KEM EncapsState LE-i16",
+                    "gf_poly": "0x1100b (x^16+x^12+x^3+x+1)",
+                }),
+            );
+            obj.insert("cases".into(), Value::Array(gen_spqr_chunks()));
+            obj.insert("gf_triples".into(), Value::Array(gen_gf16_triples()));
+        }
         other => {
             return Err(format!(
                 "unknown domain {other:?}; \
-                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender"
+                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender|mlkem-incremental|spqr-chunks"
             ));
         }
     };
@@ -857,18 +898,251 @@ fn gen_sealedsender() -> Vec<Value> {
 // (handshake, then many encrypt/decrypt turns) against the same Rust peer.
 //
 // v0.91.0 sessions are PQXDH/v4 only (X3DH/v3 is removed upstream — see
-// session.rs "X3DH no longer supported"), and process_prekey_bundle takes no
-// UsePQRatchet flag at this tag, so sessions negotiate without the SPQR
-// post-quantum ratchet (Stage 1): the resulting v4 SignalMessages carry no
-// pq_ratchet bytes. The InMem stores never actually await, so the async API is
-// driven synchronously via `now_or_never().expect("sync")`, matching upstream's
-// own test support module.
+// session.rs "X3DH no longer supported"). v0.91.0 ships the Sparse Post-Quantum
+// Ratchet (spqr v1.5.1): initialize_{alice,bob}_session call
+// spqr::initial_state(version V1, min_version V0) unconditionally — there is no
+// UsePQRatchet flag at this tag — so sessions negotiate SPQR and the resulting
+// v4 SignalMessages carry pq_ratchet bytes that the Go port mixes in (T28). The
+// InMem stores never actually await, so the async API is driven synchronously
+// via `now_or_never().expect("sync")`, matching upstream's own test support
+// module.
 
 thread_local! {
     /// Per-handle session state for the interop loop. Single-threaded: the loop
     /// reads one request at a time, so a RefCell is sufficient and there is no
     /// cross-thread sharing.
     static STORES: RefCell<HashMap<String, InMemSignalProtocolStore>> = RefCell::new(HashMap::new());
+}
+
+// --- mlkem-incremental domain: libcrux 0.0.8 incremental ML-KEM-768 (the SPQR
+//     KEM), oracle 3 for the pure-Go internal/mlkem768incr incremental layer. ---
+
+/// Byte sizes of the libcrux incremental ML-KEM-768 wire artifacts (K=3). These
+/// are compile-time `const fn`s in libcrux; we assert them against the literals
+/// the Go port hardcodes so a future libcrux bump that changes a size trips the
+/// harness build rather than silently shifting the fixture.
+const MLKEM_INCR_PK1_LEN: usize = 64; // ρ ‖ H(ek)
+const MLKEM_INCR_PK2_LEN: usize = 1152; // ByteEncode₁₂(t̂)
+const MLKEM_INCR_DK_LEN: usize = 2400; // compressed key pair (standard dk)
+const MLKEM_INCR_CT1_LEN: usize = 960; // Compress₁₀(u)
+const MLKEM_INCR_CT2_LEN: usize = 128; // Compress₄(v)
+const MLKEM_INCR_STATE_LEN: usize = 2080; // r̂(3·512) ‖ error2(512) ‖ randomness(32)
+const MLKEM_INCR_SS_LEN: usize = 32;
+
+/// Reproduces SPQR's `potentially_fix_state_incorrectly_encoded_by_libcrux_issue_1275`
+/// (SparsePostQuantumRatchet v1.5.1 src/incremental_mlkem768.rs), which is
+/// `pub(crate)` in the spqr crate and so not callable here. libcrux's SIMD
+/// backends (NEON/AVX2) serialize the per-coefficient i16s in `EncapsState` with
+/// swapped endianness (cryspen/libcrux#1275); the portable backend is correct.
+/// libcrux multiplexes on the host CPU at runtime, so the raw `encapsulate1`
+/// state is host-dependent. We normalize it to the correct little-endian form
+/// (what the portable backend — and the Go port — produce) so the committed
+/// fixture is reproducible regardless of which backend built it.
+///
+/// Detection: the `error2` polynomial (state[1536..2048]) holds CBD η2 samples,
+/// all in [-2, 2]. Read as little-endian i16, a correct encoding shows only
+/// {0x0000, 0x0001, 0x0002, 0xFFFF(-1), 0xFFFE(-2)}; a byte-swapped one shows
+/// {0x0100, 0x0200, 0xFEFF(-2 swapped)}. On the first decisive value we either
+/// leave it (correct) or flip every i16 in state[0..len-32] (swapped); the
+/// trailing 32 random bytes have no endianness and are never flipped.
+fn mlkem_incr_fix_state_1275(es: &[u8]) -> Vec<u8> {
+    assert_eq!(es.len(), MLKEM_INCR_STATE_LEN);
+    const NEG1: i16 = 0xFFFFu16 as i16;
+    const NEG2_GOOD: i16 = 0xFFFEu16 as i16;
+    const NEG2_BAD: i16 = 0xFEFFu16 as i16;
+
+    let error2 = &es[1536..MLKEM_INCR_STATE_LEN - 32];
+    let mut flip = false;
+    for c in error2.chunks_exact(2) {
+        match i16::from_le_bytes([c[0], c[1]]) {
+            0x0000 | NEG1 => {} // identical in either endianness; undecided
+            0x0001 | 0x0002 | NEG2_GOOD => {
+                flip = false;
+                break;
+            }
+            0x0100 | 0x0200 | NEG2_BAD => {
+                flip = true;
+                break;
+            }
+            _ => break, // unexpected; treat as already-correct (SPQR warns + keeps)
+        }
+    }
+    let mut out = es.to_vec();
+    if flip {
+        for i in (0..out.len() - 32).step_by(2) {
+            out.swap(i, i + 1);
+        }
+    }
+    out
+}
+
+/// mlkem-incremental domain: byte-exact KATs for the libcrux 0.0.8 incremental
+/// ML-KEM-768 split (the KEM SPQR uses). Each case is generated from a fixed
+/// 64-byte keygen seed and a fixed 32-byte encapsulation message (both drawn
+/// from the seeded CSPRNG, so the batch is reproducible), exercising the full
+/// incremental flow:
+///
+///   from_seed(seed) -> pk1(hdr) ‖ pk2(ek) ‖ sk(dk)
+///   encapsulate1(pk1, m) -> ct1, encaps_state, ss
+///   encapsulate2(encaps_state_fixed, pk2) -> ct2
+///   decapsulate_compressed_key(dk, ct1, ct2) -> ss   (== encaps ss)
+///
+/// `encaps_state` is the raw state from this host's libcrux backend (possibly
+/// issue-1275-swapped); `encaps_state_fixed` is the 1275-normalized state. On a
+/// portable-backend host they are equal. The Go oracle test asserts (a) its own
+/// EncapsState serializer == `encaps_state_fixed` and (b) its 1275 fix applied to
+/// `encaps_state` == `encaps_state_fixed`, so both the codec and the fix are
+/// pinned regardless of which backend produced the fixture.
+fn gen_mlkem_incremental() -> Vec<Value> {
+    use libcrux_ml_kem::mlkem768::incremental;
+
+    // Lock the libcrux compile-time sizes to the literals the Go port assumes.
+    assert_eq!(incremental::pk1_len(), MLKEM_INCR_PK1_LEN);
+    assert_eq!(incremental::pk2_len(), MLKEM_INCR_PK2_LEN);
+    assert_eq!(incremental::encaps_state_len(), MLKEM_INCR_STATE_LEN);
+    assert_eq!(incremental::Ciphertext1::len(), MLKEM_INCR_CT1_LEN);
+    assert_eq!(incremental::Ciphertext2::len(), MLKEM_INCR_CT2_LEN);
+
+    let mut rng = seeded_rng();
+    let mut cases = Vec::new();
+
+    for _ in 0..N_MLKEM_INCREMENTAL_CASES {
+        // `Rng::random` fills fixed-size byte arrays from the seeded CSPRNG
+        // (matching the other generators' use of the in-scope `rand::Rng`).
+        let seed: [u8; 64] = rng.random(); // KEY_GENERATION_SEED_SIZE
+        let message: [u8; MLKEM_INCR_SS_LEN] = rng.random(); // SHARED_SECRET_SIZE
+
+        let kp = incremental::KeyPairCompressedBytes::from_seed(seed);
+        let pk1 = kp.pk1();
+        let pk2 = kp.pk2();
+        let dk = kp.sk();
+        assert_eq!(dk.len(), MLKEM_INCR_DK_LEN);
+
+        // pk1/pk2 must validate together (reconstructs t̂‖ρ and re-checks H).
+        incremental::validate_pk_bytes(pk1, pk2).expect("pk1/pk2 consistent");
+
+        let mut state = vec![0u8; MLKEM_INCR_STATE_LEN];
+        let mut ss_enc = vec![0u8; MLKEM_INCR_SS_LEN];
+        let ct1 =
+            incremental::encapsulate1(pk1, message, &mut state, &mut ss_enc).expect("encapsulate1");
+        let state_fixed = mlkem_incr_fix_state_1275(&state);
+
+        let ct2 =
+            incremental::encapsulate2((&state_fixed[..]).try_into().expect("state len 2080"), pk2);
+
+        let ct1v = ct1.value;
+        let ct2v = ct2.value;
+        let ct1_obj = incremental::Ciphertext1 { value: ct1v };
+        let ct2_obj = incremental::Ciphertext2 { value: ct2v };
+        let ss_dec = incremental::decapsulate_compressed_key(dk, &ct1_obj, &ct2_obj);
+
+        let matches = ss_enc.as_slice() == ss_dec.as_ref();
+
+        cases.push(json!({
+            "seed": hex(&seed),
+            "message": hex(&message),
+            "pk1": hex(pk1),
+            "pk2": hex(pk2),
+            "dk": hex(dk),
+            "ct1": hex(&ct1v),
+            "ct2": hex(&ct2v),
+            "encaps_state": hex(&state),
+            "encaps_state_fixed": hex(&state_fixed),
+            "shared_secret": hex(&ss_enc),
+            "decapsulated_matches": matches,
+        }));
+    }
+
+    cases
+}
+
+// --- spqr-chunks domain: golden BE-u16 chunk vectors + GF16 mul/div triples
+//     captured from SPQR v1.5.1 (test-utils), oracle leg (c) for T27 Slice B. ---
+
+/// Number of golden chunk cases and GF16 triples to emit. Sized to cover the
+/// literal-data path (low indices), the interpolation path (high indices), and a
+/// realistic ek-sized message.
+const N_SPQR_CHUNK_MESSAGES: usize = 6;
+const N_GF16_TRIPLES: usize = 64;
+
+/// spqr-chunks domain. For each fixed message, capture a set of `chunk_at(i)`
+/// outputs from the genuine SPQR PolyEncoder — including indices within the
+/// original data (literal points) and beyond it (interpolated points) — so the
+/// Go port's chunk bytes are pinned to the crate's big-endian wire byte-for-byte.
+fn gen_spqr_chunks() -> Vec<Value> {
+    use spqr::encoding::polynomial::PolyEncoder;
+    use spqr::encoding::Encoder;
+
+    let mut rng = seeded_rng();
+    // Message lengths exercising: tiny, sub-chunk, multi-chunk, and the
+    // 1152-byte incremental-ML-KEM ek (the real payload SPQR chunks).
+    let lengths = [2usize, 10, 32, 64, 320, 1152];
+    let mut cases = Vec::new();
+    for (mi, &len) in lengths.iter().take(N_SPQR_CHUNK_MESSAGES).enumerate() {
+        let mut msg = vec![0u8; len];
+        for b in msg.iter_mut() {
+            *b = rng.random(); // in-scope rand::Rng fills bytes from the seeded CSPRNG
+        }
+
+        // Indices spanning the literal-data range and well past it (forcing the
+        // encoder's Points→Polys interpolation transition).
+        let max_data_chunks = (len / 32) + 1;
+        let mut indices: Vec<u16> = Vec::new();
+        for i in 0..(max_data_chunks as u16 + 2) {
+            indices.push(i);
+        }
+        // A few high indices to pin interpolated points.
+        for k in 0..4u16 {
+            indices.push(max_data_chunks as u16 * 3 + k);
+        }
+
+        let mut chunks = Vec::new();
+        for &idx in &indices {
+            // A fresh encoder per chunk keeps each capture independent of the
+            // lazy Points→Polys state transition order.
+            let mut enc = PolyEncoder::encode_bytes(&msg).expect("encode_bytes");
+            let c = enc.chunk_at(idx);
+            chunks.push(json!({
+                "index": c.index,
+                "data": hex(&c.data),
+            }));
+        }
+
+        cases.push(json!({
+            "msg_index": mi,
+            "message": hex(&msg),
+            "chunks": chunks,
+        }));
+    }
+    cases
+}
+
+/// GF(2^16) mul/div KAT triples from the genuine SPQR GF16 (POLY=0x1100b). Each
+/// triple records a, b, a*b and (when b != 0) a/b, so the Go field is pinned to
+/// the crate's exact arithmetic independently of the property tests.
+fn gen_gf16_triples() -> Vec<Value> {
+    use spqr::encoding::gf::GF16;
+
+    let mut rng = seeded_rng();
+    let mut out = Vec::new();
+    for _ in 0..N_GF16_TRIPLES {
+        let a = rng.random::<u16>();
+        let b = rng.random::<u16>();
+        let prod = (GF16::new(a) * GF16::new(b)).value;
+        let mut case = json!({
+            "a": a,
+            "b": b,
+            "product": prod,
+        });
+        if b != 0 {
+            let quot = (GF16::new(a) / GF16::new(b)).value;
+            case.as_object_mut()
+                .unwrap()
+                .insert("quotient".into(), json!(quot));
+        }
+        out.push(case);
+    }
+    out
 }
 
 /// The interop CSPRNG. Session key generation and Kyber encapsulation must use a
@@ -1056,9 +1330,14 @@ fn session_process_bundle_as_alice(params: &Value) -> Result<Value, String> {
     with_new_store(&handle, |store| {
         let mut rng = interop_rng();
         let remote = protocol_address(&remote_name);
-        // process_prekey_bundle at v0.91.0 takes no local_address.
+        // v0.96.0 added local_address (2nd arg): it feeds is_same_account →
+        // SPQR self_connection. For pairwise interop the local "self" differs
+        // from the remote, so this is the normal (non-self) session, matching the
+        // v0.91.0 behavior where the param did not exist.
+        let local = protocol_address("self");
         process_prekey_bundle(
             &remote,
+            &local,
             &mut store.session_store,
             &mut store.identity_store,
             &bundle,
@@ -1379,8 +1658,13 @@ fn sealed_seal_v2(params: &Value) -> Result<Value, String> {
             InMemSignalProtocolStore::new(recipient_identity, registration_id)
                 .map_err(|e| e.to_string())?;
         let bundle = build_recipient_bundle(&mut recipient_store, registration_id, &mut rng)?;
+        // v0.96.0 added local_address (2nd arg): the sender's own address,
+        // distinct from each recipient ServiceId, so is_same_account is false
+        // (normal cross-account session, as at v0.91.0 before the param existed).
+        let sender_local = protocol_address("self");
         process_prekey_bundle(
             &address,
+            &sender_local,
             &mut sender_store.session_store,
             &mut sender_store.identity_store,
             &bundle,

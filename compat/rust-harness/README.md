@@ -10,10 +10,11 @@ Compatibility harness that wraps upstream
 behavioral reference oracle for the pure-Go port. It is a **dev/CI-only** crate:
 nothing in the Go module depends on it, and it is not published.
 
-The upstream dependency is pinned to a fixed tag, **`v0.91.0`** (see ADR 0001 —
-the pin is `v0.91.0`, **not** `v0.91.1`). It lives in its own isolated Cargo
-workspace (`[workspace] members = ["."]`) so it is never pulled into a parent
-workspace, mirroring `rust/protocol/cross-version-testing/Cargo.toml` upstream.
+The upstream dependency is pinned to a fixed tag, **`v0.96.0`** — the Stage-2
+mainline-compat target (T29 advanced it from the Stage-1 pin `v0.91.0`; see ADR
+0001). It lives in its own isolated Cargo workspace (`[workspace] members =
+["."]`) so it is never pulled into a parent workspace, mirroring
+`rust/protocol/cross-version-testing/Cargo.toml` upstream.
 
 ## Build-time system dependency: `protoc`
 
@@ -36,7 +37,8 @@ If `protoc` is installed somewhere off `PATH`, point the build at it with the
 ## Toolchain
 
 `rust-toolchain.toml` pins `nightly-2026-03-23`, matching the toolchain
-upstream `v0.91.0` itself pins. `rustup` fetches it on demand.
+upstream `v0.96.0` itself pins (the same nightly `v0.91.0` pinned, so the
+Stage-2 re-pin needed no toolchain change). `rustup` fetches it on demand.
 
 ## Usage
 
@@ -68,6 +70,23 @@ Domains:
   `SenderKeyDistributionMessage`, built with fixed keys.
 - `fingerprint` — display + scannable fingerprints (v1 and v2) for a fixed
   identity-key pair.
+- `mlkem-incremental` — byte-exact KATs for libcrux 0.0.8's incremental
+  ML-KEM-768 (the KEM SPQR uses): the keygen split (`pk1`/`pk2`/`dk`), two-phase
+  encapsulation (`ct1`, `encaps_state`, `ct2`, `shared_secret`), and
+  decapsulation. `encaps_state` is the raw libcrux state for this host's backend;
+  `encaps_state_fixed` is the cryspen/libcrux#1275-normalized state (equal to
+  `encaps_state` on the portable backend, which is what builds here use). Oracle 3
+  for the pure-Go `internal/mlkem768incr` incremental layer; the generated batch
+  is committed at
+  `internal/mlkem768incr/testdata/libcrux_incremental_mlkem768.json`.
+- `spqr-chunks` — golden byte vectors for SPQR v1.5.1's GF(2^16) chunked-transport
+  erasure code (the `test-utils` feature exposes its `encoding` module): a set of
+  `chunk_at(i)` outputs (`cases`) pinning the BIG-endian u16 point/coefficient
+  wire, plus GF16 `mul`/`div` triples (`gf_triples`) pinning the field
+  (POLY=0x1100b). Oracle leg (c) for the pure-Go `internal/spqr/chunked` package —
+  the erasure property test alone is blind to a uniformly-wrong endianness, so the
+  golden bytes are required. Committed at
+  `internal/spqr/chunked/testdata/spqr_chunks.json`.
 
 Example:
 
@@ -105,5 +124,6 @@ The chain-key / root-key / message-keys / pqxdh-secret derivations are
 `pub(crate)` upstream, so the harness reproduces them with the same pinned
 crate versions (`hkdf`, `hmac`, `sha2` — matching upstream's pins). The formulas
 are taken verbatim from `rust/protocol/src/ratchet/keys.rs` and `ratchet.rs` at
-the v0.91.0 tag, which remain the contract. Every other domain calls the genuine
-public API.
+the v0.96.0 tag, which remain the contract (these version-stable formulas are
+unchanged from v0.91.0 — the hkdf vectors are byte-identical across the re-pin).
+Every other domain calls the genuine public API.

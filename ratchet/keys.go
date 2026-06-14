@@ -53,12 +53,98 @@ func (c ChainKey) Next() ChainKey {
 	return next
 }
 
-// MessageKeys derives the per-message keys for this chain index: the message
-// key seed is HMAC-SHA256(key, 0x01), then HKDF-SHA256(seed, salt=nil,
-// info="WhisperMessageKeys") yields 32B cipher key || 32B MAC key || 16B IV.
-func (c ChainKey) MessageKeys() (MessageKeys, error) {
-	seed := c.baseMaterial(messageKeySeed)
-	okm, err := hkdfSplit(seed, nil, messageKeysInfo, cipherKeyLen+macKeyLen+ivLen)
+// MessageKeys returns the message-key generator for this chain index. The
+// message-key seed is HMAC-SHA256(key, 0x01); the generator defers the final
+// HKDF until GenerateKeys is called with the (optional) Sparse Post-Quantum
+// Ratchet message key, so the SPQR secret can be folded in per message — and
+// so a SKIPPED message's seed can be cached and the keys derived later, once
+// that specific message (and thus its SPQR key) arrives. Mirrors
+// ChainKey::message_keys in rust/protocol/src/ratchet/keys.rs.
+func (c ChainKey) MessageKeys() MessageKeyGenerator {
+	return NewMessageKeyGeneratorFromSeed(c.baseMaterial(messageKeySeed), c.index)
+}
+
+// MessageKeyGenerator produces a message's MessageKeys, either by deferring the
+// final key derivation from a stored seed (the common case, allowing the SPQR
+// per-message key to be mixed in at derivation time) or by holding an already
+// materialized MessageKeys (for cached keys from older, pre-SPQR sessions).
+// Mirrors MessageKeyGenerator in rust/protocol/src/ratchet/keys.rs.
+type MessageKeyGenerator struct {
+	// Exactly one of (seed) / (keys) is live, selected by fromSeed.
+	fromSeed bool
+	seed     []byte
+	counter  uint32
+	keys     MessageKeys
+}
+
+// NewMessageKeyGeneratorFromSeed builds a Seed-variant generator: the keys are
+// derived later from seed at the given counter. Mirrors
+// MessageKeyGenerator::new_from_seed.
+func NewMessageKeyGeneratorFromSeed(seed []byte, counter uint32) MessageKeyGenerator {
+	return MessageKeyGenerator{fromSeed: true, seed: append([]byte(nil), seed...), counter: counter}
+}
+
+// NewMessageKeyGeneratorFromKeys builds a Keys-variant generator wrapping
+// already-derived MessageKeys (used when reloading cached keys produced by a
+// pre-SPQR session, which stored the derived keys rather than the seed).
+func NewMessageKeyGeneratorFromKeys(keys MessageKeys) MessageKeyGenerator {
+	return MessageKeyGenerator{fromSeed: false, keys: keys}
+}
+
+// FromSeed reports whether this generator defers derivation from a seed (true)
+// or wraps already-materialized keys (false). The session storage codec uses
+// this to decide whether to persist the seed or the derived keys.
+func (g MessageKeyGenerator) FromSeed() bool { return g.fromSeed }
+
+// String redacts the secret material so the deferred seed (Seed variant) or the
+// wrapped MessageKeys (Keys variant) never leak into logs.
+func (g MessageKeyGenerator) String() string {
+	return "ratchet.MessageKeyGenerator{[redacted]}"
+}
+
+// Format intercepts every fmt verb — including Go-syntax %#v and hex %x — so the
+// seed (Seed variant) or the embedded MessageKeys bytes (Keys variant) can never
+// leak through formatting that bypasses String(). The generator needs its OWN
+// Format: %#v of the outer struct recurses into the embedded MessageKeys by
+// reflection, which does NOT invoke MessageKeys' Format. Mirrors the pattern on
+// every other secret-bearing ratchet type (MessageKeys/ChainKey/RootKey).
+func (g MessageKeyGenerator) Format(f fmt.State, _ rune) {
+	_, _ = fmt.Fprint(f, "ratchet.MessageKeyGenerator{[redacted]}")
+}
+
+// Seed returns the stored seed and counter for a Seed-variant generator; the
+// bool is false for a Keys-variant generator.
+func (g MessageKeyGenerator) Seed() ([]byte, uint32, bool) {
+	if !g.fromSeed {
+		return nil, 0, false
+	}
+	return append([]byte(nil), g.seed...), g.counter, true
+}
+
+// GenerateKeys materializes the MessageKeys, mixing in the optional Sparse
+// Post-Quantum Ratchet message key (pqrKey) as the HKDF salt. A nil/empty
+// pqrKey means no SPQR key for this message (V0 or pre-negotiation), which
+// yields exactly the pre-SPQR derivation (salt=nil) — preserving backward
+// compatibility. Mirrors MessageKeyGenerator::generate_keys.
+//
+// For a Keys-variant generator (cached pre-SPQR keys) pqrKey MUST be nil:
+// pre-SPQR sessions never mix a PQR key, and the keys are already derived.
+func (g MessageKeyGenerator) GenerateKeys(pqrKey []byte) (MessageKeys, error) {
+	if !g.fromSeed {
+		if len(pqrKey) != 0 {
+			return MessageKeys{}, fmt.Errorf("ratchet: PQR key supplied for an already-derived (pre-SPQR) message-key generator")
+		}
+		return g.keys, nil
+	}
+	return deriveMessageKeys(g.seed, pqrKey, g.counter)
+}
+
+// deriveMessageKeys runs HKDF-SHA256(ikm=seed, salt=pqrKey, info=
+// "WhisperMessageKeys") -> 32B cipher key || 32B MAC key || 16B IV. With a
+// nil salt this is the original pre-SPQR derivation. Mirrors
+// MessageKeys::derive_keys.
+func deriveMessageKeys(seed, pqrKey []byte, counter uint32) (MessageKeys, error) {
+	okm, err := hkdfSplit(seed, pqrKey, messageKeysInfo, cipherKeyLen+macKeyLen+ivLen)
 	if err != nil {
 		return MessageKeys{}, fmt.Errorf("ratchet: deriving message keys: %w", err)
 	}
@@ -66,7 +152,28 @@ func (c ChainKey) MessageKeys() (MessageKeys, error) {
 	copy(mk.cipherKey[:], okm[0:cipherKeyLen])
 	copy(mk.macKey[:], okm[cipherKeyLen:cipherKeyLen+macKeyLen])
 	copy(mk.iv[:], okm[cipherKeyLen+macKeyLen:cipherKeyLen+macKeyLen+ivLen])
-	mk.index = c.index
+	mk.index = counter
+	return mk, nil
+}
+
+// NewMessageKeys assembles a MessageKeys from its component byte slices (used
+// when reloading cached, already-derived keys from session storage). It
+// validates each length.
+func NewMessageKeys(cipherKey, macKey, iv []byte, index uint32) (MessageKeys, error) {
+	if len(cipherKey) != cipherKeyLen {
+		return MessageKeys{}, fmt.Errorf("ratchet: cipher key must be %d bytes, got %d", cipherKeyLen, len(cipherKey))
+	}
+	if len(macKey) != macKeyLen {
+		return MessageKeys{}, fmt.Errorf("ratchet: MAC key must be %d bytes, got %d", macKeyLen, len(macKey))
+	}
+	if len(iv) != ivLen {
+		return MessageKeys{}, fmt.Errorf("ratchet: IV must be %d bytes, got %d", ivLen, len(iv))
+	}
+	var mk MessageKeys
+	copy(mk.cipherKey[:], cipherKey)
+	copy(mk.macKey[:], macKey)
+	copy(mk.iv[:], iv)
+	mk.index = index
 	return mk, nil
 }
 

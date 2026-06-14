@@ -42,6 +42,15 @@ linters:
       - path: groups/derivation_kat_test\.go
         linters:
           - gosec
+      # The SPQR state-codec tests read the committed issue1275_*.in fixtures from
+      # testdata/ by a fixed relative path (G304) — same controlled-fixture pattern
+      # as the KATs above; a false positive in a test.
+      - path: spqr/state_test\.go
+        linters:
+          - gosec
+      - path: spqr/fuzz_test\.go
+        linters:
+          - gosec
       # The session tests build proto fields from small, deterministic loop
       # counters; gosec G115 flags the int->uint32 / uint32->byte conversions as
       # overflow, but every value is provably bounded — false positive in a test.
@@ -74,5 +83,74 @@ linters:
       # session/cipher_test.go forges a message with the session version cast to
       # uint8 (bounded) — false-positive G115 in a test, as in record_test.go.
       - path: session/cipher_test\.go
+        linters:
+          - gosec
+      # internal/mlkem768incr is a from-scratch FIPS-203 ML-KEM-768 port (ADR
+      # 0003) modeled on Go stdlib's crypto/internal/fips140/mlkem. Two linters
+      # fire on the unmodified FIPS-203 algorithms and are false positives here:
+      #   - errcheck: SHA-3 / SHAKE Write/Read/Sum on an in-memory hash never
+      #     return a non-nil error (same as protocol/ and internal/crypto/kdf.go,
+      #     which call mac.Write unchecked); the stdlib source we mirror ignores
+      #     them identically.
+      #   - gosec G115/G602: the field-arithmetic integer conversions are all
+      #     provably bounded by q=3329 / the 12-bit coefficient packing, and the
+      #     fixed-size slice indexing follows sliceForAppend, which guarantees the
+      #     length. These mirror the stdlib FIPS-203 code verbatim and are
+      #     covered byte-for-byte by the stdlib + ACVP oracles.
+      - path: internal/mlkem768incr/
+        linters:
+          - errcheck
+          - gosec
+      # internal/spqr/chunked is a from-scratch byte-exact port of SPQR
+      # v1.5.1's GF(2^16) erasure code (T27 Slice B). gosec false positives on
+      # the unmodified algorithm, same justification as internal/mlkem768incr:
+      #   - G115/G602: the integer conversions are all field-bounded — GF(2^16)
+      #     values are uint16 by construction, chunk/poly indices are bounded by
+      #     the 16-poly / 32-byte chunk layout, and the high/low byte splits of a
+      #     uint16 are exact. Pinned byte-for-byte by the SPQR golden chunk +
+      #     GF16 mul/div oracles.
+      #   - G404: the *_test.go files use math/rand to drive property/erasure
+      #     tests and the independent GF16 log-table reference; no security
+      #     dependence on the RNG (byte-exactness comes from the crate vectors).
+      #   - G104: rng.Read in tests never errors (math/rand).
+      - path: internal/spqr/chunked/
+        linters:
+          - gosec
+      # spqr/authenticator.go's be64 helper splits a uint64 into 8 bytes via
+      # >>56..>>0 shifts; every byte() is an exact low-8-bits truncation, not a
+      # lossy overflow. G115 false positive (same be64 pattern accepted across the
+      # codebase).
+      - path: spqr/authenticator\.go
+        text: 'G115'
+        linters:
+          - gosec
+      # spqr/chain.go computes int(currentEpoch - epoch) for the in-window epoch
+      # offset; the subtraction is guarded (epoch <= currentEpoch) and the window
+      # is bounded by max_jump (25000), so the int conversion cannot overflow.
+      # G115 false positive, matching session/state.go and the chunked port.
+      - path: spqr/chain\.go
+        text: 'G115'
+        linters:
+          - gosec
+      # spqr/chain_test.go seeds math/rand for deterministic out-of-order key
+      # shuffling in the Chain property tests — no security dependence on the RNG
+      # (the byte-exactness comes from the chain.rs port). G404 false positive in a
+      # test, same as the chunked tests above.
+      - path: spqr/chain_test\.go
+        linters:
+          - gosec
+      # spqr/spqr.go's Params.AuthKey and EpochSecret.Secret are the SPQR key
+      # material the type exists to carry across the package boundary, not
+      # serialized JSON secrets; G117 (field-name matches a secret pattern) is a
+      # false positive, the same class as compat/vectors_test.go's private_key
+      # field.
+      - path: spqr/spqr\.go
+        text: 'G117'
+        linters:
+          - gosec
+      # spqr/spqr_test.go indexes a fixed-size [ChunkSize]byte array with the loop
+      # variable in `for i := range data`; the index is provably in range. G602
+      # false positive in a test.
+      - path: spqr/spqr_test\.go
         linters:
           - gosec

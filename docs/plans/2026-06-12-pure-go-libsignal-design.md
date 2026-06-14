@@ -331,3 +331,61 @@ Scope: no manifest change (T19 stays one task in PR6; only one verification
 sub-item's source changes — upstream-fixture → Go-unit-test). Matches design's
 "v3 = decrypt/state compat ONLY" scope row.
 Evidence: pqxdh.rs / ratchet.rs:98,161 / session.rs:107-115 / lib.rs:43 (cited).
+
+### Backport 2026-06-13: SPQR KEM = incremental ML-KEM-768 (pure-Go port; circl insufficient)
+
+Cause: design/plan assumed circl supplies SPQR's KEM ("ML-KEM-1024 via circl").
+False on both counts (verified vs SPQR v1.5.1 cargo f2589fe): SPQR uses ML-KEM-
+**768** via libcrux's **incremental** API (chunked encaps-key header/pk2 split,
+encapsulate1/2, decapsulate_compressed_key, custom encaps-state byte layout).
+circl v1.6.3 has only monolithic standard ML-KEM-768 — cannot produce/consume
+SPQR's state-blob bytes; cgo to libcrux is forbidden.
+Change: T27 ports incremental ML-KEM-768 to pure Go (fork circl mlkem768 +
+incremental/chunked layer + encaps-state codec, KAT'd vs the libcrux reference)
+as its first slice, ahead of the SPQR codec/state-machine slices. SPQR not
+deferred (owner ruling). Recorded in ADR 0002.
+Scope: owner-approved amendment; T27 content expands; PR count 11 / task count
+30 unchanged (T27 still ships in PR 10). See decisions/0002-incremental-mlkem768-pure-go.md.
+Evidence: SPQR Cargo.toml libcrux-ml-kem features incremental+mlkem768;
+src/incremental_mlkem768.rs; circl grep incremental→0 (implementer-2, lead-relayed).
+
+### Backport 2026-06-13: SPQR KEM path resolved by spike — STANDALONE FIPS-203
+
+Cause: ADR 0002 preferred forking circl's mlkem768; the Slice-0 design spike
+disproved it. circl mlkem768 is ROUND-3 Kyber (wrong version — byte-incompatible
+with libcrux's FIPS-203-final); Go 1.26 stdlib `crypto/mlkem` IS FIPS-203-final
+ML-KEM-768 but its real internals (crypto/internal/fips140/mlkem) are
+import-locked (monolithic public API only). Neither is a usable BASE.
+Change: T27 Slice 0 = STANDALONE pure-Go ML-KEM-768 PKE (field/NTT/sampling/
+compress/serialize) modeled on stdlib's fips140/mlkem source (FIPS-203-correct,
+BSD — carry Go copyright attribution) + libcrux 0.0.8 incremental split layered
+on top. Dual-oracle acceptance: stdlib crypto/mlkem (end-to-end correctness) +
+a Rust KAT harness over libcrux 0.0.8 (byte-exact incremental vectors, incl.
+issue-1275 bad-encoding). This is the explicit fallback ADR 0002 named; owner's
+"write a chunked/incremental implementation" authorizes it. Slice 0 split into
+0a (PKE/KEM core) + 0b (incremental layer), each its own reviewed unit.
+Scope: within ADR 0002's approved amendment; manifest count/grouping unchanged.
+Evidence: spike (implementer-2) — ek=1184B(1152 t̂‖32 ρ), pk2==t̂(1152), hdr/pk1==ρ+hash(64); stdlib API exposes no matrix/NTT/PKE; circl internals are round-3.
+
+### Backport 2026-06-14: v0.91.0 PRODUCES SPQR; session interop verified in T28
+
+Cause: the T0=v0.91.0 erratum (2026-06-12, above) framed v0.91.0 as "SPQR
+optional, pre-SPQR interop works", and the T28 plan/ADR-0001 framing implied
+v0.91.0 was effectively pre-SPQR (interop deferred to T29). Building T28's
+interop slice required resolving this against the cargo checkout.
+Change: v0.91.0 DOES produce SPQR. Its Cargo.lock pins spqr v1.5.1 rev f2589fe
+(the T27 crate); `initialize_{alice,bob}_session` call `spqr::initial_state(V1,
+min_version V0)` UNCONDITIONALLY, and `process_prekey_bundle` has NO
+`UsePQRatchet` flag at this tag (added in a later version). So every v0.91.0 v4
+SignalMessage carries a NON-EMPTY pq_ratchet field; `min_version V0` only means
+a V0-only peer can negotiate down (fall back), NOT that the field is absent.
+Therefore SPQR Rust↔Go session interop is testable NOW and STAYS IN T28 (assert
+pq_ratchet on the wire both directions); T29's re-pin to v0.96.0 is purely
+currency, not SPQR's existence.
+Scope: no manifest change (T28 still = session integration + interop; the plan's
+"expose UsePQRatchet in the harness" is satisfied by asserting the unconditional
+SPQR the harness already emits, since no such flag exists at v0.91.0). See
+decisions/0004-spqr-session-interop-in-t28.md.
+Evidence: cargo checkout HEAD 8418be45 (v0.91.0), Cargo.lock spqr=v1.5.1/f2589fe
+(implementer-1, lead-verified); `go test -tags=interop ./compat -run
+TestSessionInterop` PASS with non-empty pq_ratchet asserted both roles.

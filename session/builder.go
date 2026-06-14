@@ -10,7 +10,9 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/kem"
+	"github.com/GoCodeAlone/libsignal-go/proto"
 	"github.com/GoCodeAlone/libsignal-go/ratchet"
+	"github.com/GoCodeAlone/libsignal-go/spqr"
 	"github.com/GoCodeAlone/libsignal-go/stores"
 )
 
@@ -236,6 +238,15 @@ func initializeAliceSession(rng io.Reader, p aliceParams) (*SessionState, error)
 		return nil, fmt.Errorf("session: alice DH ratchet step: %w", err)
 	}
 
+	// SPQR initial state: the initiator is the A2B role; auth_key is the
+	// PQXDH-derived PQR seed. min_version V0 lets a peer that does not speak SPQR
+	// still interoperate. Mirrors ratchet::initialize_alice_session's
+	// spqr::initial_state(Direction::A2B).
+	pqrState, err := pqrInitialState(proto.Direction_A_2_B, initial.PQRSeed, p.ourIdentity.PublicKey, p.theirIdentity)
+	if err != nil {
+		return nil, err
+	}
+
 	st := NewEmptySessionState()
 	st.SetSessionVersion(signalMessageCurrentVersion)
 	st.SetLocalIdentityPublic(p.ourIdentity.PublicKey)
@@ -248,9 +259,37 @@ func initializeAliceSession(rng io.Reader, p aliceParams) (*SessionState, error)
 	// PQXDH-derived chain key; sender chain off the DH ratchet step.
 	st.AddReceiverChain(p.theirSignedPre, initial.ChainKey)
 	st.SetSenderChain(sendingRatchet, sendingChain)
+	st.SetPQRatchetState(pqrState)
 	// The Kyber ciphertext to relay in the PreKeySignalMessage.
 	st.SetKyberCiphertext(kyberCT)
 	return st, nil
+}
+
+// pqrInitialState builds the initial serialized SPQR state for a session.
+// direction is A2B for the initiator (alice) and B2A for the recipient (bob).
+// authKey is the PQXDH-derived PQR seed. The chain params follow upstream
+// spqr_chain_params: max_jump is u32 max for a self-session (a session to one's
+// own identity, where message ordering is unconstrained) and MaxForwardJumps
+// otherwise; max_ooo_keys is MaxMessageKeys. version V1 / min_version V0 enables
+// SPQR while allowing fallback for peers that do not yet speak it. Mirrors
+// ratchet::initialize_{alice,bob}_session's spqr::initial_state call.
+func pqrInitialState(dir proto.Direction, authKey [32]byte, localIdentity, remoteIdentity curve.PublicKey) ([]byte, error) {
+	selfSession := localIdentity.Equal(remoteIdentity)
+	maxJump := uint32(MaxForwardJumps)
+	if selfSession {
+		maxJump = ^uint32(0) // u32::MAX
+	}
+	state, err := spqr.InitialState(spqr.Params{
+		Direction:   dir,
+		Version:     proto.Version_V_1,
+		MinVersion:  proto.Version_V_0,
+		AuthKey:     authKey[:],
+		ChainParams: &proto.ChainParams{MaxJump: maxJump, MaxOooKeys: MaxMessageKeys},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("session: initializing SPQR state: %w", err)
+	}
+	return state, nil
 }
 
 // BobParams carries the resolved key material for the recipient agreement. The
@@ -319,6 +358,13 @@ func InitializeBobSession(p BobParams) (*SessionState, error) {
 		return nil, fmt.Errorf("session: deriving initial keys: %w", err)
 	}
 
+	// SPQR initial state: the recipient is the B2A role. Mirrors
+	// ratchet::initialize_bob_session's spqr::initial_state(Direction::B2A).
+	pqrState, err := pqrInitialState(proto.Direction_B_2_A, initial.PQRSeed, p.OurIdentity.PublicKey, p.TheirIdentity)
+	if err != nil {
+		return nil, err
+	}
+
 	st := NewEmptySessionState()
 	st.SetSessionVersion(signalMessageCurrentVersion)
 	st.SetLocalIdentityPublic(p.OurIdentity.PublicKey)
@@ -330,5 +376,6 @@ func InitializeBobSession(p BobParams) (*SessionState, error) {
 	// Bob's sending chain is keyed by his own signed pre-key off the PQXDH chain
 	// key; no receiver chain yet (set when Bob first receives from Alice).
 	st.SetSenderChain(p.OurSignedPre, initial.ChainKey)
+	st.SetPQRatchetState(pqrState)
 	return st, nil
 }

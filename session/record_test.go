@@ -162,25 +162,35 @@ func TestMessageKeyCacheInsertTake(t *testing.T) {
 	rk := genKeyPair(t, 30).PublicKey
 	st.AddReceiverChain(rk, chainKey(t, 0x50, 0))
 
-	mk := MessageKeyAt{
-		Index:     42,
-		CipherKey: bytes.Repeat([]byte{0xC1}, 32),
-		MacKey:    bytes.Repeat([]byte{0xC2}, 32),
-		IV:        bytes.Repeat([]byte{0xC3}, 16),
+	// Cache a materialized (Keys-variant) generator — the cipher/mac/iv must
+	// survive the proto round-trip and come back identically.
+	keys, err := ratchet.NewMessageKeys(
+		bytes.Repeat([]byte{0xC1}, 32),
+		bytes.Repeat([]byte{0xC2}, 32),
+		bytes.Repeat([]byte{0xC3}, 16),
+		42,
+	)
+	if err != nil {
+		t.Fatalf("NewMessageKeys: %v", err)
 	}
-	if err := st.CacheMessageKeys(rk, mk); err != nil {
+	if err := st.CacheMessageKeys(rk, ratchet.NewMessageKeyGeneratorFromKeys(keys)); err != nil {
 		t.Fatalf("CacheMessageKeys: %v", err)
 	}
 	// Miss on a different index.
 	if _, ok, err := st.TakeMessageKeys(rk, 7); err != nil || ok {
 		t.Fatalf("expected miss for index 7: ok=%v err=%v", ok, err)
 	}
-	// Hit.
-	got, ok, err := st.TakeMessageKeys(rk, 42)
+	// Hit: the materialized keys come back unchanged (no PQR key for a
+	// Keys-variant entry).
+	gen, ok, err := st.TakeMessageKeys(rk, 42)
 	if err != nil || !ok {
 		t.Fatalf("TakeMessageKeys(42): ok=%v err=%v", ok, err)
 	}
-	if !bytes.Equal(got.CipherKey, mk.CipherKey) || !bytes.Equal(got.MacKey, mk.MacKey) || !bytes.Equal(got.IV, mk.IV) {
+	got, err := gen.GenerateKeys(nil)
+	if err != nil {
+		t.Fatalf("GenerateKeys: %v", err)
+	}
+	if !bytes.Equal(got.CipherKey(), keys.CipherKey()) || !bytes.Equal(got.MACKey(), keys.MACKey()) || !bytes.Equal(got.IV(), keys.IV()) {
 		t.Fatal("taken message keys mismatch")
 	}
 	// Taking again is a miss (entry consumed).
@@ -199,7 +209,8 @@ func TestMessageKeyCacheEviction(t *testing.T) {
 	// Insert MaxMessageKeys+1 entries; index 0 is inserted first (so it ends up
 	// at the tail and should be evicted).
 	for i := 0; i <= MaxMessageKeys; i++ {
-		if err := st.CacheMessageKeys(rk, MessageKeyAt{Index: uint32(i), CipherKey: []byte{byte(i)}}); err != nil {
+		gen := ratchet.NewMessageKeyGeneratorFromSeed(bytes.Repeat([]byte{byte(i)}, 32), uint32(i))
+		if err := st.CacheMessageKeys(rk, gen); err != nil {
 			t.Fatalf("CacheMessageKeys[%d]: %v", i, err)
 		}
 	}

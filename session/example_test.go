@@ -91,7 +91,7 @@ func Example_sessionRoundTrip() {
 	plaintext := []byte("hello, bob")
 	// On the first (unacknowledged) message Alice wraps the SignalMessage in a
 	// PreKeySignalMessage; the inner SignalMessage is what Bob's session decrypts.
-	signalMsg, preKeyMsg, err := session.Encrypt(ctx, plaintext, bobAddr, aliceSess, aliceID, nil)
+	signalMsg, preKeyMsg, err := session.Encrypt(ctx, plaintext, bobAddr, aliceSess, aliceID, nil, rand.Reader)
 	if err != nil {
 		panic(err)
 	}

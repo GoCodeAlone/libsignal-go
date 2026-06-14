@@ -54,6 +54,7 @@ func Encrypt(
 	sessionStore Store,
 	identityStore stores.IdentityKeyStore,
 	clock Clock,
+	rng io.Reader,
 ) (*protocol.SignalMessage, *protocol.PreKeySignalMessage, error) {
 	record, err := sessionStore.LoadSession(ctx, remoteAddress)
 	if err != nil {
@@ -79,7 +80,16 @@ func Encrypt(
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrSessionNotFound, err)
 	}
-	mk, err := chainKey.MessageKeys()
+	// Advance the SPQR send ratchet: the pqr message rides on the wire and the
+	// pqr key is mixed into this message's keys (the triple ratchet). For a
+	// V0/pre-negotiation session pqrMsg is empty and pqrKey is nil, so the
+	// derivation is unchanged. Mirrors message_encrypt's pq_ratchet_send +
+	// generate_keys(pqr_key).
+	pqrMsg, pqrKey, err := state.PQRatchetSend(rng)
+	if err != nil {
+		return nil, nil, err
+	}
+	mk, err := chainKey.MessageKeys().GenerateKeys(pqrKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("session: deriving message keys: %w", err)
 	}
@@ -103,8 +113,8 @@ func Encrypt(
 		ctext,
 		senderID,
 		receiverID,
-		nil, // pq_ratchet absent (Stage 1, no SPQR)
-		nil, // addresses (sealed-sender binding) unused here
+		pqrMsg, // the SPQR ratchet message (empty for a V0/no-SPQR session)
+		nil,    // addresses (sealed-sender binding) unused here
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("session: building SignalMessage: %w", err)
@@ -217,9 +227,21 @@ func decryptWithState(state *SessionState, ciphertext *protocol.SignalMessage, r
 	if err != nil {
 		return nil, err
 	}
-	mk, err := getOrCreateMessageKeys(state, theirRatchet, chainKey, counter)
+	gen, err := getOrCreateMessageKeys(state, theirRatchet, chainKey, counter)
 	if err != nil {
 		return nil, err
+	}
+	// Advance the SPQR receive ratchet with the inbound message's pqr field, then
+	// mix the resulting key into this message's keys. Mirrors message_decrypt's
+	// pq_ratchet_recv + generate_keys(pqr_key). Empty pqr / nil key leaves the
+	// derivation unchanged (V0 / no-SPQR peer).
+	pqrKey, err := state.PQRatchetRecv(ciphertext.PQRatchet())
+	if err != nil {
+		return nil, err
+	}
+	mk, err := gen.GenerateKeys(pqrKey)
+	if err != nil {
+		return nil, fmt.Errorf("session: deriving message keys: %w", err)
 	}
 
 	senderID, err := curve.DeserializePublicKey(state.RemoteIdentityPublic())
@@ -230,7 +252,7 @@ func decryptWithState(state *SessionState, ciphertext *protocol.SignalMessage, r
 	if err != nil {
 		return nil, fmt.Errorf("session: local identity: %w", err)
 	}
-	ok, err := ciphertext.VerifyMAC(senderID, receiverID, mk.MacKey)
+	ok, err := ciphertext.VerifyMAC(senderID, receiverID, mk.MACKey())
 	if err != nil {
 		return nil, fmt.Errorf("session: MAC check: %w", err)
 	}
@@ -238,7 +260,7 @@ func decryptWithState(state *SessionState, ciphertext *protocol.SignalMessage, r
 		return nil, fmt.Errorf("%w: MAC verification failed", ErrInvalidMessage)
 	}
 
-	ptext, err := crypto.DecryptCBC(ciphertext.Body(), mk.CipherKey, mk.IV)
+	ptext, err := crypto.DecryptCBC(ciphertext.Body(), mk.CipherKey(), mk.IV())
 	if err != nil {
 		return nil, fmt.Errorf("%w: AES-CBC decrypt: %v", ErrInvalidMessage, err)
 	}
@@ -294,55 +316,38 @@ func getOrCreateChainKey(state *SessionState, theirRatchet curve.PublicKey, rng 
 // chain. If the chain has already advanced past counter, it returns the cached
 // skipped keys (or ErrDuplicateMessage if none). Otherwise it steps the chain
 // to counter, caching each skipped key, capped by MaxForwardJumps.
-func getOrCreateMessageKeys(state *SessionState, theirRatchet curve.PublicKey, chainKey ratchet.ChainKey, counter uint32) (MessageKeyAt, error) {
+func getOrCreateMessageKeys(state *SessionState, theirRatchet curve.PublicKey, chainKey ratchet.ChainKey, counter uint32) (ratchet.MessageKeyGenerator, error) {
 	chainIndex := chainKey.Index()
 
 	if chainIndex > counter {
-		mk, ok, err := state.TakeMessageKeys(theirRatchet, counter)
+		gen, ok, err := state.TakeMessageKeys(theirRatchet, counter)
 		if err != nil {
-			return MessageKeyAt{}, err
+			return ratchet.MessageKeyGenerator{}, err
 		}
 		if !ok {
-			return MessageKeyAt{}, fmt.Errorf("%w: counter %d", ErrDuplicateMessage, counter)
+			return ratchet.MessageKeyGenerator{}, fmt.Errorf("%w: counter %d", ErrDuplicateMessage, counter)
 		}
-		return mk, nil
+		return gen, nil
 	}
 
 	if counter-chainIndex > MaxForwardJumps {
-		return MessageKeyAt{}, fmt.Errorf("%w: message too far in the future (jump %d > %d)", ErrInvalidMessage, counter-chainIndex, MaxForwardJumps)
+		return ratchet.MessageKeyGenerator{}, fmt.Errorf("%w: message too far in the future (jump %d > %d)", ErrInvalidMessage, counter-chainIndex, MaxForwardJumps)
 	}
 
-	// Step the chain to counter, caching each skipped message's keys.
+	// Step the chain to counter, caching each skipped message's generator (the
+	// SEED, so the per-message SPQR key is mixed in only when that message
+	// actually arrives — generate_keys is deferred to take time).
 	ck := chainKey
 	for ck.Index() < counter {
-		skipped, err := ck.MessageKeys()
-		if err != nil {
-			return MessageKeyAt{}, fmt.Errorf("session: skipped message keys: %w", err)
-		}
-		if err := state.CacheMessageKeys(theirRatchet, messageKeysToAt(skipped)); err != nil {
-			return MessageKeyAt{}, err
+		if err := state.CacheMessageKeys(theirRatchet, ck.MessageKeys()); err != nil {
+			return ratchet.MessageKeyGenerator{}, err
 		}
 		ck = ck.Next()
 	}
 	if err := state.SetReceiverChainKey(theirRatchet, ck.Next()); err != nil {
-		return MessageKeyAt{}, err
+		return ratchet.MessageKeyGenerator{}, err
 	}
-	mk, err := ck.MessageKeys()
-	if err != nil {
-		return MessageKeyAt{}, fmt.Errorf("session: message keys: %w", err)
-	}
-	return messageKeysToAt(mk), nil
-}
-
-// messageKeysToAt converts a ratchet.MessageKeys into the storage-facing
-// MessageKeyAt (carrying the same cipher/mac/iv and the chain index).
-func messageKeysToAt(mk ratchet.MessageKeys) MessageKeyAt {
-	return MessageKeyAt{
-		Index:     mk.Index(),
-		CipherKey: mk.CipherKey(),
-		MacKey:    mk.MACKey(),
-		IV:        mk.IV(),
-	}
+	return ck.MessageKeys(), nil
 }
 
 // isStaleUnacked reports whether an unacknowledged session created at

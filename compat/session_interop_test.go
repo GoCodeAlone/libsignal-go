@@ -11,14 +11,19 @@
 // (Go=Alice/Rust=Bob and Rust=Alice/Go=Bob) and with AND without a one-time
 // pre-key (the no-OPK case exercises the optional-DH4 PQXDH path).
 //
-// v0.91.0 sessions are PQXDH/v4 only — X3DH/v3 is removed upstream (the decrypt
-// path returns "X3DH no longer supported"), and process_prekey_bundle takes no
-// UsePQRatchet flag at this tag, so sessions negotiate WITHOUT the SPQR
-// post-quantum ratchet (Stage 1): every SignalMessage carries pq_ratchet absent
-// and pq_ratchet_state empty, and both roles interoperate on that basis. A v3
-// decrypt-vector suite is therefore not achievable with the v0.91.0 public API
-// (documented limitation — see compat/README.md); the v4 interop here is the
-// full protocol surface the pinned upstream supports.
+// v0.96.0 sessions are PQXDH/v4 only — X3DH/v3 is removed upstream (the decrypt
+// path returns "X3DH no longer supported"). At v0.96.0 the Sparse Post-Quantum
+// Ratchet (SPQR, spqr v1.5.1) is MANDATORY: initialize_{alice,bob}_session set
+// min_version V1 ("require all clients speak SPQR"). The Go port keeps
+// min_version V0 (it accepts a V0 peer too) but SPEAKS V1, so against the
+// v0.96.0 (min V1) harness the session negotiates V1 both roles — every v4
+// SignalMessage carries a non-empty pq_ratchet field, and the prekey message is
+// accepted by the min-V1 upstream (no floor-mismatch refusal). This suite
+// asserts both (SPQR on the wire both directions + the Go port mixes the SPQR
+// key) — at v0.96.0 it is the REQUIRED path, not a negotiable-down option. A v3
+// decrypt-vector suite is not achievable with the v0.96.0 public API (documented
+// limitation — see compat/README.md); the v4 interop here is the full surface
+// pinned upstream supports.
 //
 // Like the other interop tests this is gated behind the `interop` build tag and
 // driven via COMPAT_HARNESS_BIN (see interop_test.go for the client).
@@ -342,6 +347,18 @@ func TestSessionInteropGoAliceRustBob(t *testing.T) {
 
 			// Bob replies so Alice's session becomes acknowledged (a Whisper).
 			reply := rustEncrypt(t, h, bobHandle, aliceAddr.Name(), []byte("bob reply 0"))
+			// SPQR cross-impl proof: at v0.96.0 SPQR is mandatory (min_version V1),
+			// so the upstream reply carries a non-empty pq_ratchet field (V1
+			// negotiated) — and Go decrypting it means the Go side correctly mixed
+			// the SPQR key Rust derived. That Rust=Bob accepted Go's prekey message
+			// above already proved the min-V1 upstream does not refuse Go's session.
+			replyMsg, err := protocol.DeserializeSignalMessage(mustDecodeHex(t, reply.Serialized))
+			if err != nil {
+				t.Fatalf("DeserializeSignalMessage (Rust=Bob reply): %v", err)
+			}
+			if len(replyMsg.PQRatchet()) == 0 {
+				t.Fatal("Rust=Bob reply carries no pq_ratchet — SPQR not on the wire cross-impl")
+			}
 			if got := goDecryptWhisper(ctx, t, aliceSess, bobAddr, reply); !bytes.Equal(got, []byte("bob reply 0")) {
 				t.Fatalf("Go=Alice decrypt reply 0: got %q", got)
 			}
@@ -389,6 +406,16 @@ func TestSessionInteropRustAliceGoBob(t *testing.T) {
 			// Go=Bob replies so Rust=Alice's session is acknowledged.
 			bobID := inmem.NewIdentityKeyStore(bob.identity, bob.regID)
 			reply := goEncrypt(ctx, t, bobSess, bobID, aliceAddr, []byte("bob reply 0"))
+			// SPQR cross-impl proof (the producing direction): the Go reply carries
+			// a non-empty pq_ratchet field, and Rust=Alice decrypting it means the
+			// upstream side accepted and mixed the SPQR key Go produced.
+			replyMsg, err := protocol.DeserializeSignalMessage(mustDecodeHex(t, reply.Serialized))
+			if err != nil {
+				t.Fatalf("DeserializeSignalMessage (Go=Bob reply): %v", err)
+			}
+			if len(replyMsg.PQRatchet()) == 0 {
+				t.Fatal("Go=Bob reply carries no pq_ratchet — Go is not producing SPQR on the wire")
+			}
 			if got := rustDecrypt(t, h, aliceHandle, bobAddr.Name(), reply); !bytes.Equal(got, []byte("bob reply 0")) {
 				t.Fatalf("Rust=Alice decrypt reply 0: got %q", got)
 			}
@@ -524,7 +551,7 @@ func deliveryOrder(n int) []int {
 // is type PreKey and serialized whole; otherwise a plain Whisper SignalMessage.
 func goEncrypt(ctx context.Context, t *testing.T, sess session.Store, id stores.IdentityKeyStore, remote address.ProtocolAddress, pt []byte) ctMsg {
 	t.Helper()
-	signal, preKey, err := session.Encrypt(ctx, pt, remote, sess, id, nil)
+	signal, preKey, err := session.Encrypt(ctx, pt, remote, sess, id, nil, cryptorand.Reader)
 	if err != nil {
 		t.Fatalf("Go Encrypt: %v", err)
 	}

@@ -249,7 +249,7 @@ func TestHKDFVectors(t *testing.T) {
 		if err != nil {
 			t.Fatalf("message-keys case %d: NewChainKey: %v", i, err)
 		}
-		mk, err := ck.MessageKeys()
+		mk, err := ck.MessageKeys().GenerateKeys(nil)
 		if err != nil {
 			t.Fatalf("message-keys case %d: MessageKeys: %v", i, err)
 		}
