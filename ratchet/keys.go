@@ -96,6 +96,22 @@ func NewMessageKeyGeneratorFromKeys(keys MessageKeys) MessageKeyGenerator {
 // this to decide whether to persist the seed or the derived keys.
 func (g MessageKeyGenerator) FromSeed() bool { return g.fromSeed }
 
+// String redacts the secret material so the deferred seed (Seed variant) or the
+// wrapped MessageKeys (Keys variant) never leak into logs.
+func (g MessageKeyGenerator) String() string {
+	return "ratchet.MessageKeyGenerator{[redacted]}"
+}
+
+// Format intercepts every fmt verb — including Go-syntax %#v and hex %x — so the
+// seed (Seed variant) or the embedded MessageKeys bytes (Keys variant) can never
+// leak through formatting that bypasses String(). The generator needs its OWN
+// Format: %#v of the outer struct recurses into the embedded MessageKeys by
+// reflection, which does NOT invoke MessageKeys' Format. Mirrors the pattern on
+// every other secret-bearing ratchet type (MessageKeys/ChainKey/RootKey).
+func (g MessageKeyGenerator) Format(f fmt.State, _ rune) {
+	_, _ = fmt.Fprint(f, "ratchet.MessageKeyGenerator{[redacted]}")
+}
+
 // Seed returns the stored seed and counter for a Seed-variant generator; the
 // bool is false for a Keys-variant generator.
 func (g MessageKeyGenerator) Seed() ([]byte, uint32, bool) {

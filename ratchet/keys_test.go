@@ -522,6 +522,14 @@ func TestFormatRedaction(t *testing.T) {
 
 	// Test both value and pointer forms (fmt dispatches Format on either when the
 	// method has a value receiver).
+	// MessageKeyGenerator, BOTH variants: a Seed generator built from a
+	// distinctive 0xAB seed (a leak would show "abab"), and a Keys generator
+	// wrapping mk (a leak would dump the embedded MessageKeys bytes — and %#v
+	// recurses into the embedded struct by reflection, bypassing MessageKeys'
+	// own Format, which is exactly why the generator needs its OWN Format).
+	genSeed := NewMessageKeyGeneratorFromSeed(bytes.Repeat([]byte{0xAB}, 32), 9)
+	genKeys := NewMessageKeyGeneratorFromKeys(mk)
+
 	check("ChainKey", ck)
 	check("ChainKey ptr", &ck)
 	check("RootKey", rk)
@@ -530,11 +538,21 @@ func TestFormatRedaction(t *testing.T) {
 	check("MessageKeys ptr", &mk)
 	check("InitialKeys", ik)
 	check("InitialKeys ptr", &ik)
+	check("MessageKeyGenerator(Seed)", genSeed)
+	check("MessageKeyGenerator(Seed) ptr", &genSeed)
+	check("MessageKeyGenerator(Keys)", genKeys)
+	check("MessageKeyGenerator(Keys) ptr", &genKeys)
 
 	// Belt-and-suspenders: the MAC key bytes (derived, not 0xAB/0xCD) must also
 	// be absent from %#v of MessageKeys. Compare against the actual derived hex.
 	mkLeak := fmt.Sprintf("%#v", mk)
 	if strings.Contains(strings.ToLower(mkLeak), strings.ToLower(hex.EncodeToString(mk.MACKey()))) {
 		t.Fatalf("MessageKeys %%#v leaks derived MAC key: %s", mkLeak)
+	}
+	// Same belt-and-suspenders for the Keys-variant generator (it wraps mk): the
+	// derived MAC key must not surface via %#v recursion into the embedded struct.
+	genLeak := fmt.Sprintf("%#v", genKeys)
+	if strings.Contains(strings.ToLower(genLeak), strings.ToLower(hex.EncodeToString(mk.MACKey()))) {
+		t.Fatalf("MessageKeyGenerator(Keys) %%#v leaks derived MAC key: %s", genLeak)
 	}
 }
