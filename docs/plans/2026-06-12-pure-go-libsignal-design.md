@@ -389,3 +389,21 @@ decisions/0004-spqr-session-interop-in-t28.md.
 Evidence: cargo checkout HEAD 8418be45 (v0.91.0), Cargo.lock spqr=v1.5.1/f2589fe
 (implementer-1, lead-verified); `go test -tags=interop ./compat -run
 TestSessionInterop` PASS with non-empty pq_ratchet asserted both roles.
+
+### Backport 2026-06-14: rust/ reference snapshot removed at v0.1.0 (T30/PR11)
+
+Done (not a correction): the in-repo `rust/` upstream-source snapshot + the root
+`Cargo.toml`/`Cargo.lock`/`rust-toolchain` workspace are deleted in T30/PR11, as
+the reference-tree plan always intended (the snapshot was the read-only
+behavioral reference through PR10's SPQR port). The Go impl is self-sufficient;
+wire compatibility is asserted against the compat harness, which pins upstream
+libsignal REMOTELY (git-dep, now v0.96.0) — never the in-tree snapshot.
+Verified rust/ was never a build dependency: `CGO_ENABLED=0 go build ./...` +
+`go test ./...` green with it absent. The 28 Go provenance comments
+(`// ported from rust/protocol/src/…`) are kept — they point into git history,
+which preserves the snapshot. CI interaction handled in the same commit: the
+restore-cargo-cache `calculate_cache_keys.py` read the root `rust-toolchain` and
+raised if absent; it now falls back to `stable` (harness crates carry their own
+`rust-toolchain.toml`). The README reference-tree section + `.gitignore` comment
+flip future→past tense. No manifest change (T30 is the locked PR11). Evidence:
+T30 commit on feat/go-p11-cleanup (implementer-1).

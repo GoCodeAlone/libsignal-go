@@ -2,7 +2,9 @@
 .idea
 *.iml
 
-# Rust build output (rust/ retained as upstream reference until v0.1.0)
+# Stray root-level Rust build output. The rust/ reference snapshot and its root
+# workspace were removed at v0.1.0; the compat harness crates ignore their own
+# target/ via compat/rust-harness*/.gitignore. This stays as a safety net.
 /target
 
 # Go build / test artifacts

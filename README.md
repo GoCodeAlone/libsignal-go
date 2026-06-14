@@ -32,8 +32,8 @@ This table tracks what has merged to the default branch.
 | P7 | Groups: sender keys + group cipher | ✅ |
 | P8 | Sealed sender v1/v2 + AES-256-GCM-SIV | ✅ |
 | P9 | Fingerprints + API polish + scope matrix | ✅ |
-| P10 | SPQR port + re-pin to mainline + full revalidation | 📦 this PR |
-| P11 | Cleanup: remove reference trees, final docs, `v0.1.0` | 🚧 |
+| P10 | SPQR port + re-pin to mainline + full revalidation | ✅ |
+| P11 | Cleanup: remove reference trees, final docs, `v0.1.0` | 📦 this PR |
 
 ✅ merged to main · 📦 this pull request · 🚧 planned
 
@@ -92,14 +92,17 @@ guarantees beyond the documented Go posture are also out of scope.
 
 ## Reference tree
 
-The upstream Rust sources live under [`rust/`](rust/) as a behavioral
-reference snapshot. They are **not built or shipped** — every crypto constant,
-KDF info string, version byte, MAC layout, and proto field number in the Go
-code is traced to a cited line in this tree and locked by a vector test. The
-`rust/` tree (along with the Cargo manifests and `rust-toolchain`) is removed
-at the `v0.1.0` tag once the Go implementation is self-sufficient and the
-compat harness no longer needs an in-tree reference. Git history preserves it
-regardless.
+During development the upstream Rust sources lived under `rust/` as a read-only
+behavioral reference snapshot: every crypto constant, KDF info string, version
+byte, MAC layout, and proto field number in the Go code was traced to a cited
+line in that tree and locked by a vector test. The `rust/` snapshot (along with
+the root Cargo manifests and `rust-toolchain`) was **removed at `v0.1.0`**, now
+that the Go implementation is self-sufficient — git history preserves it, and
+the provenance comments in the Go sources (`// ported from
+rust/protocol/src/…`) still point into that history. Wire compatibility is no
+longer asserted against an in-tree snapshot but against the **compat harness**
+([`compat/rust-harness/`](compat/rust-harness/)), which pins upstream libsignal
+remotely by tag and remains in the repo.
 
 ## Installation
 
