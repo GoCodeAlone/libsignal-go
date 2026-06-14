@@ -410,8 +410,12 @@ func (s *SessionState) CacheMessageKeys(senderRatchetKey curve.PublicKey, gen ra
 	if idx < 0 {
 		return fmt.Errorf("session: no receiver chain to cache message keys for")
 	}
+	entry, err := messageKeyGenToProto(gen)
+	if err != nil {
+		return err
+	}
 	chain := s.structure.ReceiverChains[idx]
-	chain.MessageKeys = append([]*proto.SessionStructure_Chain_MessageKey{messageKeyGenToProto(gen)}, chain.MessageKeys...)
+	chain.MessageKeys = append([]*proto.SessionStructure_Chain_MessageKey{entry}, chain.MessageKeys...)
 	if len(chain.MessageKeys) > MaxMessageKeys {
 		chain.MessageKeys = chain.MessageKeys[:MaxMessageKeys]
 	}
@@ -446,19 +450,28 @@ func (s *SessionState) TakeMessageKeys(senderRatchetKey curve.PublicKey, index u
 // A Seed (deferred) generator stores its seed + index with empty key fields; a
 // Keys (materialized) generator stores the derived cipher/mac/iv + index with an
 // empty seed. Mirrors MessageKeyGenerator::into_pb.
-func messageKeyGenToProto(gen ratchet.MessageKeyGenerator) *proto.SessionStructure_Chain_MessageKey {
+//
+// The Keys-variant materialization passes a nil PQR key, so GenerateKeys cannot
+// error on this path (it only rejects a non-nil PQR key on an already-derived
+// generator); the error is propagated rather than discarded for robustness, so
+// any future change to that contract surfaces as a clean error, not a panic or
+// silent zero-value entry.
+func messageKeyGenToProto(gen ratchet.MessageKeyGenerator) (*proto.SessionStructure_Chain_MessageKey, error) {
 	if seed, counter, ok := gen.Seed(); ok {
-		return &proto.SessionStructure_Chain_MessageKey{Index: counter, Seed: seed}
+		return &proto.SessionStructure_Chain_MessageKey{Index: counter, Seed: seed}, nil
 	}
 	// Keys variant: materialize (no PQR key — Keys-variant generators are
 	// pre-SPQR cached keys) and store the derived components.
-	mk, _ := gen.GenerateKeys(nil)
+	mk, err := gen.GenerateKeys(nil)
+	if err != nil {
+		return nil, fmt.Errorf("session: encoding cached message key: %w", err)
+	}
 	return &proto.SessionStructure_Chain_MessageKey{
 		Index:     mk.Index(),
 		CipherKey: mk.CipherKey(),
 		MacKey:    mk.MACKey(),
 		Iv:        mk.IV(),
-	}
+	}, nil
 }
 
 // messageKeyGenFromProto reconstructs a MessageKeyGenerator from a proto cache
