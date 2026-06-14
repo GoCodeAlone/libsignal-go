@@ -143,3 +143,44 @@ func TestEncoderFromProtoRejectsBadShapes(t *testing.T) {
 		t.Fatal("expected error for decoder wrong pts count")
 	}
 }
+
+// sixteen returns a 16-entry [][]byte with one entry replaced by bad.
+func sixteen(idx int, bad []byte) [][]byte {
+	out := make([][]byte, NumPolys)
+	if idx >= 0 {
+		out[idx] = bad
+	}
+	return out
+}
+
+// TestEncoderFromProtoRejectsMalformedEntries asserts the per-entry decode
+// guards on the Points and Polys branches reject malformed (attacker-influenced)
+// serialized state, not just wrong outer cardinality. These parse untrusted
+// bytes, so the repo norm is a direct negative test on each reject path.
+func TestEncoderFromProtoRejectsMalformedEntries(t *testing.T) {
+	// Points branch: an odd-length pts entry (not a whole number of BE16 values).
+	odd := &proto.PolynomialEncoder{Pts: sixteen(0, []byte{0x01})}
+	if _, err := EncoderFromProto(odd); err == nil {
+		t.Fatal("expected error for odd-length pts entry")
+	}
+	// Polys branch: an empty-coefficient polynomial.
+	emptyPoly := &proto.PolynomialEncoder{Polys: sixteen(0, []byte{})}
+	if _, err := EncoderFromProto(emptyPoly); err == nil {
+		t.Fatal("expected error for empty polynomial in Polys branch")
+	}
+	// Polys branch: an odd-length poly entry (not a whole number of BE16 coeffs).
+	oddPoly := &proto.PolynomialEncoder{Polys: sixteen(0, []byte{0x01, 0x02, 0x03})}
+	if _, err := EncoderFromProto(oddPoly); err == nil {
+		t.Fatal("expected error for odd-length poly entry")
+	}
+}
+
+// TestDecoderFromProtoRejectsMalformedEntries asserts the decoder's per-entry
+// guard: a pts entry whose length is not a multiple of 4 (one serialized point
+// is BE16 x ‖ BE16 y) must be rejected.
+func TestDecoderFromProtoRejectsMalformedEntries(t *testing.T) {
+	notMul4 := &proto.PolynomialDecoder{Pts: sixteen(0, []byte{0x01, 0x02, 0x03})}
+	if _, err := DecoderFromProto(notMul4); err == nil {
+		t.Fatal("expected error for pts entry length not a multiple of 4")
+	}
+}
