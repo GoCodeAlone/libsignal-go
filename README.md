@@ -11,8 +11,10 @@ upstream Rust implementation for the client-side protocol surface, to be
 enforced by cross-implementation compatibility checks as required CI gates
 (landing in P4).
 
-> Status: early development. The API is unstable and will change without
-> notice until the `v0.1.0` tag. Not yet suitable for production use.
+> Status: **`v0.1.0` released** — the full client protocol is implemented and
+> interop-verified byte-compatible with libsignal v0.96.0 (both roles). Early
+> development: the API may still change across `0.x` releases; review the
+> security posture before production use.
 
 ## Status
 
@@ -33,9 +35,9 @@ This table tracks what has merged to the default branch.
 | P8 | Sealed sender v1/v2 + AES-256-GCM-SIV | ✅ |
 | P9 | Fingerprints + API polish + scope matrix | ✅ |
 | P10 | SPQR port + re-pin to mainline + full revalidation | ✅ |
-| P11 | Cleanup: remove reference trees, final docs, `v0.1.0` | 📦 this PR |
+| P11 | Cleanup: remove reference trees, final docs, `v0.1.0` | ✅ |
 
-✅ merged to main · 📦 this pull request · 🚧 planned
+✅ merged to main. **All 11 phases complete — tagged `v0.1.0`.**
 
 ## Compatibility staging
 
@@ -89,6 +91,18 @@ deliberate non-goals for this module.
 Legend: ✅ implemented (v0.96.0 compat) · 🚧 staged to a later phase · ⛔
 excluded (deliberate non-goal). FIPS certification and key-material zeroization
 guarantees beyond the documented Go posture are also out of scope.
+
+**No ⛔ row is a client-protocol gap.** Every capability a Signal client needs to
+send and receive messages — 1:1 sessions (PQXDH), group messaging, sealed sender
+(v1 + v2), fingerprints, and the SPQR post-quantum ratchet — is ✅ implemented and
+interop-proven against mainline. The excluded rows are deliberate non-goals:
+server / credential / service surfaces (zkgroup, usernames, key transparency,
+SVR, account-keys), app- and transport-layer features (device transfer, media,
+message backup, net), upstream test-only code (`incremental_mac`, the HPKE test
+harness, `session_cipher_legacy`), language bindings (this module *is* the Go
+binding), or behaviors upstream v0.96.0 itself does not perform — v3 *session
+initiation* (v3 *decrypt* is retained) and ML-KEM-1024 *activation* (wire type
+`0x0A` is reserved-only, exactly as in mainline).
 
 ## Reference tree
 
