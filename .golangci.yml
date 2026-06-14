@@ -116,3 +116,41 @@ linters:
       - path: internal/spqr/chunked/
         linters:
           - gosec
+      # spqr/authenticator.go's be64 helper splits a uint64 into 8 bytes via
+      # >>56..>>0 shifts; every byte() is an exact low-8-bits truncation, not a
+      # lossy overflow. G115 false positive (same be64 pattern accepted across the
+      # codebase).
+      - path: spqr/authenticator\.go
+        text: 'G115'
+        linters:
+          - gosec
+      # spqr/chain.go computes int(currentEpoch - epoch) for the in-window epoch
+      # offset; the subtraction is guarded (epoch <= currentEpoch) and the window
+      # is bounded by max_jump (25000), so the int conversion cannot overflow.
+      # G115 false positive, matching session/state.go and the chunked port.
+      - path: spqr/chain\.go
+        text: 'G115'
+        linters:
+          - gosec
+      # spqr/chain_test.go seeds math/rand for deterministic out-of-order key
+      # shuffling in the Chain property tests — no security dependence on the RNG
+      # (the byte-exactness comes from the chain.rs port). G404 false positive in a
+      # test, same as the chunked tests above.
+      - path: spqr/chain_test\.go
+        linters:
+          - gosec
+      # spqr/spqr.go's Params.AuthKey and EpochSecret.Secret are the SPQR key
+      # material the type exists to carry across the package boundary, not
+      # serialized JSON secrets; G117 (field-name matches a secret pattern) is a
+      # false positive, the same class as compat/vectors_test.go's private_key
+      # field.
+      - path: spqr/spqr\.go
+        text: 'G117'
+        linters:
+          - gosec
+      # spqr/spqr_test.go indexes a fixed-size [ChunkSize]byte array with the loop
+      # variable in `for i := range data`; the index is provably in range. G602
+      # false positive in a test.
+      - path: spqr/spqr_test\.go
+        linters:
+          - gosec

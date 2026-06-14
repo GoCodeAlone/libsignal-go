@@ -366,9 +366,9 @@ func (s *v1State) sendCt1Chunk() (*v1State, chunked.Chunk) {
 // order. Mirrors Ct1Sampled.recv_ek_chunk + the Ct1SampledRecvChunk variants:
 //   - ek not done, not acked → StillReceivingStillSending → Ct1Sampled
 //   - ek not done, acked     → StillReceiving           → Ct1Acknowledged (keeps
-//                              the ek decoder; ek may still arrive out of order)
+//     the ek decoder; ek may still arrive out of order)
 //   - ek done, not acked     → StillSending → EkReceivedCt1Sampled (stores the
-//                              validated ek in the uc; still sending ct1, no decoder)
+//     validated ek in the uc; still sending ct1, no decoder)
 //   - ek done, acked         → Done → Ct2Sampled (Encapsulate2 immediately)
 func (s *v1State) recvEkChunkCt1Sampled(chunk *chunked.Chunk, ack bool) (*v1State, error) {
 	s.recvingEk.AddChunk(chunk)
