@@ -14,6 +14,7 @@ coverage.txt
 
 # Local agent config
 .claude/
+.autodev/
 
 # Patch / merge debris
 *.orig
