@@ -192,5 +192,102 @@ func generateIncrementalKey(rng io.Reader) (*mlkem768incr.IncrementalKey, error)
 	return mlkem768incr.GenerateIncrementalKey(seed)
 }
 
-// (Remaining send_ek + send_ct transitions and the send/recv dispatch follow in
-// subsequent WIP commits — this is the in-progress v1 machine, 3/N.)
+// sendHdrChunkAgain (KeysSampled): emit the next hdr chunk (still sending the
+// header). Stays KeysSampled.
+func (s *v1State) sendHdrChunkAgain() (*v1State, chunked.Chunk) {
+	chunk := s.sendingHdr.NextChunk()
+	return s, chunk
+}
+
+// recvCt1ChunkKeysSampled (KeysSampled): on the first ct1 chunk, start the ct1
+// decoder, switch from sending hdr to sending ek (the ek is already generated),
+// and fold the chunk. → HeaderSent.
+func (s *v1State) recvCt1ChunkKeysSampled(chunk *chunked.Chunk) (*v1State, error) {
+	dec, err := chunked.NewDecoder(mlkem768incr.Ciphertext1Size)
+	if err != nil {
+		return nil, err
+	}
+	dec.AddChunk(chunk)
+	enc, err := chunked.NewEncoder(s.ek)
+	if err != nil {
+		return nil, err
+	}
+	return &v1State{
+		tag: tagHeaderSent, epoch: s.epoch, auth: s.auth,
+		ek: s.ek, dk: s.dk, sendingEk: enc, recvingCt1: dec,
+	}, nil
+}
+
+// sendEkChunk (HeaderSent / Ct1Received): emit the next ek chunk. Stays in the
+// same tag.
+func (s *v1State) sendEkChunk() (*v1State, chunked.Chunk) {
+	chunk := s.sendingEk.NextChunk()
+	return s, chunk
+}
+
+// recvCt1ChunkHeaderSent (HeaderSent): fold a ct1 chunk; when ct1 fully decodes,
+// store it → Ct1Received; else stay HeaderSent.
+func (s *v1State) recvCt1ChunkHeaderSent(chunk *chunked.Chunk) *v1State {
+	s.recvingCt1.AddChunk(chunk)
+	ct1 := s.recvingCt1.DecodedMessage()
+	if ct1 == nil {
+		return s
+	}
+	return &v1State{
+		tag: tagCt1Received, epoch: s.epoch, auth: s.auth,
+		ek: s.ek, dk: s.dk, sendingEk: s.sendingEk, ct1: ct1,
+	}
+}
+
+// recvCt2ChunkCt1Received (Ct1Received): on the first ct2 chunk, start the
+// ct2+mac decoder and fold the chunk. → EkSentCt1Received.
+func (s *v1State) recvCt2ChunkCt1Received(chunk *chunked.Chunk) (*v1State, error) {
+	dec, err := chunked.NewDecoder(mlkem768incr.Ciphertext2Size + authMACSize)
+	if err != nil {
+		return nil, err
+	}
+	dec.AddChunk(chunk)
+	return &v1State{
+		tag: tagEkSentCt1Received, epoch: s.epoch, auth: s.auth,
+		dk: s.dk, ct1: s.ct1, recvingCt2: dec,
+	}, nil
+}
+
+// recvCt2ChunkEkSent (EkSentCt1Received): fold a ct2 chunk; when ct2+mac fully
+// decodes, Decapsulate(dk, ct1, ct2) → raw ss, derive the SCKA epoch secret,
+// authenticator.update(epoch, secret), verify the ct MAC over ct1‖ct2, advance
+// the epoch and FLIP to the send_ct role (NoHeaderReceived at epoch+1). Returns
+// the EpochSecret to fold into the Chain. Mirrors unchunked recv_ct2 +
+// EkSentCt1Received.recv_ct2_chunk. ok=false while still receiving.
+func (s *v1State) recvCt2ChunkEkSent(chunk *chunked.Chunk) (ns *v1State, key *epochSecret, ok bool, err error) {
+	s.recvingCt2.AddChunk(chunk)
+	decoded := s.recvingCt2.DecodedMessage()
+	if decoded == nil {
+		return s, nil, false, nil
+	}
+	ct2 := decoded[:mlkem768incr.Ciphertext2Size]
+	mac := decoded[mlkem768incr.Ciphertext2Size:]
+
+	ss, err := mlkem768incr.DecapsulateCompressedKey(s.dk, s.ct1, ct2)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("spqr: decapsulate: %w", err)
+	}
+	secret := sckaKey(ss, s.epoch)
+	s.auth.update(s.epoch, secret)
+	// The ct MAC covers ct1‖ct2.
+	if err := s.auth.verifyCt(s.epoch, concat(s.ct1, ct2), mac); err != nil {
+		return nil, nil, false, err
+	}
+	// Flip to send_ct at the next epoch.
+	dec, err := chunked.NewDecoder(mlkem768incr.PublicKey1Size + authMACSize)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	ns = &v1State{
+		tag: tagNoHeaderReceived, epoch: s.epoch + 1, auth: s.auth, recvingHdr: dec,
+	}
+	return ns, &epochSecret{epoch: s.epoch, secret: secret}, true, nil
+}
+
+// (send_ct transitions + the send/recv dispatch follow in subsequent WIP
+// commits — this is the in-progress v1 machine, 3/N.)
