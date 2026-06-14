@@ -1,0 +1,48 @@
+# GoReleaser configuration for libsignal-go.
+#
+# libsignal-go is a pure Go *library* (no binaries / no cmd/ packages), so the
+# build step is skipped. GoReleaser is used here to automate the release
+# hygiene that a library still benefits from on each tag push: a source
+# archive, checksums, a categorized changelog, and the GitHub Release object.
+#
+# Consumers install via `go get` / the module proxy; the git tag is the release.
+# See https://goreleaser.com.
+version: 2
+
+builds:
+  - skip: true
+
+source:
+  enabled: true
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: GoCodeAlone
+    name: libsignal-go
+  prerelease: auto
+  draft: false
+  name_template: "{{.Tag}}"
