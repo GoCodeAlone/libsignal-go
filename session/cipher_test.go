@@ -353,6 +353,53 @@ func TestCipherTripleRatchetOnWire(t *testing.T) {
 	}
 }
 
+// TestCipherMixedVersionFallback simulates a peer that does not speak SPQR (an
+// older client): its stored SPQR state is empty (V0). With min_version V0 on
+// both sides, the conversation must still work — the V0 side sends no pq_ratchet
+// field and contributes no key, and the V1 side negotiates down rather than
+// failing. This is the staged-rollout fallback (min_version V0) the integration
+// is designed around.
+func TestCipherMixedVersionFallback(t *testing.T) {
+	c := setupConvo(t)
+	ctx := context.Background()
+
+	// Make Bob a "V0" peer by clearing his SPQR state (as if he never
+	// initialized one). Alice keeps her V1 (min V0) state.
+	bobRec, err := c.bobSess.LoadSession(ctx, c.aliceAddr)
+	if err != nil {
+		t.Fatalf("load bob session: %v", err)
+	}
+	bobRec.CurrentState().SetPQRatchetState(nil)
+	if err := c.bobSess.StoreSession(ctx, c.aliceAddr, bobRec); err != nil {
+		t.Fatalf("store bob session: %v", err)
+	}
+
+	// Alice -> Bob: Alice's message carries a pq_ratchet field (she is V1), but
+	// Bob (V0) ignores it and decrypts with no SPQR key mixed. The message must
+	// still decrypt.
+	if got := c.bobDecrypt(t, c.aliceEncrypt(t, []byte("a1"))); !bytes.Equal(got, []byte("a1")) {
+		t.Fatalf("V0 bob failed to decrypt V1 alice's message: %q", got)
+	}
+	// Bob -> Alice: Bob (V0) sends no pq_ratchet field; Alice (V1, min V0)
+	// negotiates down and decrypts.
+	b1 := c.bobEncrypt(t, []byte("b1"))
+	if len(b1.PQRatchet()) != 0 {
+		t.Fatal("V0 bob unexpectedly produced a pq_ratchet field")
+	}
+	if got := c.aliceDecrypt(t, b1); !bytes.Equal(got, []byte("b1")) {
+		t.Fatalf("V1 alice failed to decrypt V0 bob's message: %q", got)
+	}
+	// Continue the conversation to confirm the downgraded session is stable.
+	for i := 0; i < 3; i++ {
+		if got := c.bobDecrypt(t, c.aliceEncrypt(t, []byte("ping"))); !bytes.Equal(got, []byte("ping")) {
+			t.Fatalf("round %d ping (mixed-version): %q", i, got)
+		}
+		if got := c.aliceDecrypt(t, c.bobEncrypt(t, []byte("pong"))); !bytes.Equal(got, []byte("pong")) {
+			t.Fatalf("round %d pong (mixed-version): %q", i, got)
+		}
+	}
+}
+
 // TestCipherForwardJumpCap rejects a message whose counter is more than
 // MaxForwardJumps beyond the current chain index. The jump check fires before
 // MAC verification, so a crafted far-future counter is rejected as
