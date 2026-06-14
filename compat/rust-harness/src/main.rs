@@ -898,12 +898,14 @@ fn gen_sealedsender() -> Vec<Value> {
 // (handshake, then many encrypt/decrypt turns) against the same Rust peer.
 //
 // v0.91.0 sessions are PQXDH/v4 only (X3DH/v3 is removed upstream — see
-// session.rs "X3DH no longer supported"), and process_prekey_bundle takes no
-// UsePQRatchet flag at this tag, so sessions negotiate without the SPQR
-// post-quantum ratchet (Stage 1): the resulting v4 SignalMessages carry no
-// pq_ratchet bytes. The InMem stores never actually await, so the async API is
-// driven synchronously via `now_or_never().expect("sync")`, matching upstream's
-// own test support module.
+// session.rs "X3DH no longer supported"). v0.91.0 ships the Sparse Post-Quantum
+// Ratchet (spqr v1.5.1): initialize_{alice,bob}_session call
+// spqr::initial_state(version V1, min_version V0) unconditionally — there is no
+// UsePQRatchet flag at this tag — so sessions negotiate SPQR and the resulting
+// v4 SignalMessages carry pq_ratchet bytes that the Go port mixes in (T28). The
+// InMem stores never actually await, so the async API is driven synchronously
+// via `now_or_never().expect("sync")`, matching upstream's own test support
+// module.
 
 thread_local! {
     /// Per-handle session state for the interop loop. Single-threaded: the loop
