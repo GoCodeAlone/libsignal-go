@@ -307,8 +307,16 @@ func (s *v1State) recvHdrChunk(chunk *chunked.Chunk) (ns *v1State, ok bool, err 
 	if err := s.auth.verifyHdr(s.epoch, hdr, mac); err != nil {
 		return nil, false, err
 	}
+	// Set up the ek receiver now (HeaderReceived carries it); the send_ek peer
+	// won't actually send ek chunks until it gets our first ct1, but the decoder
+	// must exist so the state serializes/round-trips. Mirrors recv_hdr_chunk
+	// building receiving_ek for HeaderReceived.
+	dec, err := chunked.NewDecoder(mlkem768incr.PublicKey2Size)
+	if err != nil {
+		return nil, false, err
+	}
 	return &v1State{
-		tag: tagHeaderReceived, epoch: s.epoch, auth: s.auth, hdr: hdr,
+		tag: tagHeaderReceived, epoch: s.epoch, auth: s.auth, hdr: hdr, recvingEk: dec,
 	}, true, nil
 }
 
@@ -326,16 +334,13 @@ func (s *v1State) sendCt1(rng io.Reader) (*v1State, chunked.Chunk, *epochSecret,
 	if err != nil {
 		return nil, chunked.Chunk{}, nil, err
 	}
-	// Receiver for the ek that will arrive (ek is PublicKey2Size).
-	dec, err := chunked.NewDecoder(mlkem768incr.PublicKey2Size)
-	if err != nil {
-		return nil, chunked.Chunk{}, nil, err
-	}
 	chunk := enc.NextChunk()
+	// The ek receiver was created when the header was received (HeaderReceived
+	// carries it); pass it through. Mirrors HeaderReceived.send_ct1_chunk.
 	ns := &v1State{
 		tag: tagCt1Sampled, epoch: s.epoch, auth: s.auth,
 		hdr: s.hdr, es: res.EncapsState, ct1: res.Ciphertext1,
-		sendingCt1: enc, recvingEk: dec,
+		sendingCt1: enc, recvingEk: s.recvingEk,
 	}
 	return ns, chunk, &epochSecret{epoch: s.epoch, secret: secret}, nil
 }
