@@ -366,3 +366,26 @@ issue-1275 bad-encoding). This is the explicit fallback ADR 0002 named; owner's
 0a (PKE/KEM core) + 0b (incremental layer), each its own reviewed unit.
 Scope: within ADR 0002's approved amendment; manifest count/grouping unchanged.
 Evidence: spike (implementer-2) — ek=1184B(1152 t̂‖32 ρ), pk2==t̂(1152), hdr/pk1==ρ+hash(64); stdlib API exposes no matrix/NTT/PKE; circl internals are round-3.
+
+### Backport 2026-06-14: v0.91.0 PRODUCES SPQR; session interop verified in T28
+
+Cause: the T0=v0.91.0 erratum (2026-06-12, above) framed v0.91.0 as "SPQR
+optional, pre-SPQR interop works", and the T28 plan/ADR-0001 framing implied
+v0.91.0 was effectively pre-SPQR (interop deferred to T29). Building T28's
+interop slice required resolving this against the cargo checkout.
+Change: v0.91.0 DOES produce SPQR. Its Cargo.lock pins spqr v1.5.1 rev f2589fe
+(the T27 crate); `initialize_{alice,bob}_session` call `spqr::initial_state(V1,
+min_version V0)` UNCONDITIONALLY, and `process_prekey_bundle` has NO
+`UsePQRatchet` flag at this tag (added in a later version). So every v0.91.0 v4
+SignalMessage carries a NON-EMPTY pq_ratchet field; `min_version V0` only means
+a V0-only peer can negotiate down (fall back), NOT that the field is absent.
+Therefore SPQR Rust↔Go session interop is testable NOW and STAYS IN T28 (assert
+pq_ratchet on the wire both directions); T29's re-pin to v0.96.0 is purely
+currency, not SPQR's existence.
+Scope: no manifest change (T28 still = session integration + interop; the plan's
+"expose UsePQRatchet in the harness" is satisfied by asserting the unconditional
+SPQR the harness already emits, since no such flag exists at v0.91.0). See
+decisions/0004-spqr-session-interop-in-t28.md.
+Evidence: cargo checkout HEAD 8418be45 (v0.91.0), Cargo.lock spqr=v1.5.1/f2589fe
+(implementer-1, lead-verified); `go test -tags=interop ./compat -run
+TestSessionInterop` PASS with non-empty pq_ratchet asserted both roles.
