@@ -45,7 +45,7 @@
 | 10 | SPQR port + re-pin to latest upstream + full-suite revalidation | Task 27, Task 28, Task 29 | feat/go-p10-spqr |
 | 11 | Cleanup: remove reference trees, final docs, v0.1.0 | Task 30 | feat/go-p11-cleanup |
 
-**Status:** Locked 2026-06-12T05:22:09Z
+**Status:** Complete 2026-06-14 — all 11 PRs / Tasks 1–30 merged to `main`; `v0.1.0` released; both review gates (spec + code) passed on every task; mainline-compatible with libsignal v0.96.0 (interop both roles). Locked 2026-06-12T05:22:09Z.
 
 ---
 
