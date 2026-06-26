@@ -40,7 +40,7 @@ jobs:
     name: pin (v0.96.0 harness must stay green)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -93,7 +93,7 @@ jobs:
     # Independent of the pin leg: a pin failure shouldn't suppress the drift
     # probe, and vice versa.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
