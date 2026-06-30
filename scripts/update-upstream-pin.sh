@@ -10,6 +10,10 @@
 
 set -euo pipefail
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "$script_dir/.." && pwd)"
+cd "$repo_root"
+
 upstream_repo="${UPSTREAM_REPO:-signalapp/libsignal}"
 requested_tag="${1:-${UPSTREAM_TAG:-}}"
 
@@ -30,7 +34,7 @@ v[0-9]*.[0-9]*.[0-9]*) ;;
 esac
 
 current_tag="$(
-	sed -nE 's/.*tag = "([^"]+)".*/\1/p' compat/rust-harness/Cargo.toml | head -n 1
+	sed -nE '/^libsignal-protocol = /s/.*tag = "([^"]+)".*/\1/p' compat/rust-harness/Cargo.toml
 )"
 
 if [ -z "$current_tag" ]; then
