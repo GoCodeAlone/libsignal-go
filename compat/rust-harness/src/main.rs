@@ -4,8 +4,8 @@
 //
 //! Rust compatibility harness for the pure-Go libsignal port.
 //!
-//! Wraps upstream `libsignal-protocol` pinned to tag v0.91.0 (see ADR 0001:
-//! the pin is v0.91.0, NOT v0.91.1) and exposes two modes:
+//! Wraps upstream `libsignal-protocol` and related crates pinned to tag
+//! v0.96.4 and exposes two modes:
 //!
 //!   * `gen-vectors <domain>` — prints a deterministic JSON test-vector batch
 //!     to stdout. Output is seeded with a fixed `rand_chacha` seed recorded in
@@ -16,9 +16,9 @@
 //!     never a crash, and the loop continues.
 //!
 //! Domains for `gen-vectors`: `curve`, `kem-decaps`, `hkdf`, `messages`,
-//! `fingerprint`, `groups`.
+//! `fingerprint`, `groups`, `username-links`.
 //!
-//! The behavioral contract is the v0.91.0 upstream source. Most domains call
+//! The behavioral contract is the v0.96.4 upstream source. Most domains call
 //! the genuine public API directly. The `hkdf` domain reproduces the chain
 //! key / root key / message key / pqxdh-secret derivations, which are
 //! `pub(crate)` upstream, against the same pinned crate versions (`hkdf`,
@@ -156,6 +156,7 @@ const N_GROUPS_SETS: u32 = 8;
 const N_GROUPS_DERIVATIONS: u32 = 24;
 const N_SEALEDSENDER_CASES: u32 = 12;
 const N_MLKEM_INCREMENTAL_CASES: u32 = 24;
+const N_USERNAME_LINK_CASES: usize = 8;
 
 fn gen_vectors(domain: &str) -> Result<(), String> {
     // Every batch carries a {domain, seed} header. Most domains add a flat
@@ -239,10 +240,13 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
             obj.insert("cases".into(), Value::Array(gen_spqr_chunks()));
             obj.insert("gf_triples".into(), Value::Array(gen_gf16_triples()));
         }
+        "username-links" => {
+            obj.insert("cases".into(), Value::Array(gen_username_links()));
+        }
         other => {
             return Err(format!(
                 "unknown domain {other:?}; \
-                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender|mlkem-incremental|spqr-chunks"
+                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender|mlkem-incremental|spqr-chunks|username-links"
             ));
         }
     };
@@ -1053,6 +1057,45 @@ fn gen_mlkem_incremental() -> Vec<Value> {
         }));
     }
 
+    cases
+}
+
+/// username-links domain: deterministic username-link encryption vectors from
+/// upstream `rust/usernames`. Each case records the supplied entropy and IV, the
+/// encrypted username bytes (IV || ciphertext || HMAC), and the decrypted
+/// username recovered by upstream.
+fn gen_username_links() -> Vec<Value> {
+    let mut rng = seeded_rng();
+    let names = [
+        "test_username.42",
+        "He110.01",
+        "usr.999999999",
+        "_identifier.42",
+        "LOUD.700",
+        "abc.10",
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.999999999",
+        "_SiGNA1.12345678",
+    ];
+    let mut cases = Vec::new();
+    for username in names.iter().take(N_USERNAME_LINK_CASES) {
+        let entropy: [u8; 32] = rng.random();
+        let iv: [u8; 16] = rng.random();
+        let (actual_entropy, encrypted) = usernames::create_for_username(
+            &mut FixedRng::new(iv.to_vec()),
+            username.to_string(),
+            Some(&entropy),
+        )
+        .expect("username link create");
+        let decrypted = usernames::decrypt_username(&actual_entropy, &encrypted)
+            .expect("username link decrypt");
+        cases.push(json!({
+            "username": username,
+            "entropy": hex(&actual_entropy),
+            "iv": hex(&iv),
+            "encrypted_username": hex(&encrypted),
+            "decrypted": decrypted,
+        }));
+    }
     cases
 }
 
@@ -1930,6 +1973,31 @@ fn dispatch(method: &str, params: &Value) -> Result<Value, String> {
         "sealed.seal-v2" => sealed_seal_v2(params),
         "sealed.unseal" => sealed_unseal(params),
 
+        // --- username links (stateless) ---
+        "username_link.create" => {
+            let username = param_str(params, "username")?;
+            let entropy = param_array::<32>(params, "entropy")?;
+            let iv = param_array::<16>(params, "iv")?;
+            let (actual_entropy, encrypted) = usernames::create_for_username(
+                &mut FixedRng::new(iv.to_vec()),
+                username,
+                Some(&entropy),
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(json!({
+                "entropy": hex(&actual_entropy),
+                "encrypted_username": hex(&encrypted),
+            }))
+        }
+
+        "username_link.decrypt" => {
+            let entropy = param_array::<32>(params, "entropy")?;
+            let encrypted_username = param_bytes(params, "encrypted_username")?;
+            let username = usernames::decrypt_username(&entropy, &encrypted_username)
+                .map_err(|e| e.to_string())?;
+            Ok(json!({ "username": username }))
+        }
+
         // message.parse_sender_key: { serialized: hex } -> { distribution_id, chain_id, iteration }
         "message.parse_sender_key" => {
             let serialized = param_bytes(params, "serialized")?;
@@ -2120,6 +2188,14 @@ fn param_bytes(params: &Value, name: &str) -> Result<Vec<u8>, String> {
         .and_then(Value::as_str)
         .ok_or_else(|| format!("missing string param {name:?}"))?;
     hex::decode(s).map_err(|e| format!("param {name:?} is not valid hex: {e}"))
+}
+
+/// Extracts a named fixed-size hex-string parameter.
+fn param_array<const N: usize>(params: &Value, name: &str) -> Result<[u8; N], String> {
+    let bytes = param_bytes(params, name)?;
+    bytes
+        .try_into()
+        .map_err(|v: Vec<u8>| format!("param {name:?} must be {N} bytes, got {}", v.len()))
 }
 
 /// Extracts a named plain-string parameter (not hex-decoded).

@@ -27,6 +27,7 @@ members = ["."]
 # ChaCha20Rng satisfies the rand_core 0.9 CryptoRng/RngCore bounds the libsignal
 # APIs take.
 libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.96.4", package = "libsignal-protocol" }
+usernames = { git = "https://github.com/signalapp/libsignal", tag = "v0.96.4", package = "usernames" }
 rand = "0.9"
 rand_chacha = "0.9"
 rand_core = "0.9"

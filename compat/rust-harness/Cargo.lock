@@ -978,6 +978,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
+name = "poksho"
+version = "0.7.0"
+source = "git+https://github.com/signalapp/libsignal?tag=v0.96.4#57d41c877d5a55d881fb3f52d9b16900118ee29b"
+dependencies = [
+ "curve25519-dalek",
+ "hmac",
+ "sha2",
+]
+
+[[package]]
 name = "polyval"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1224,6 +1234,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "spqr",
+ "usernames",
  "uuid",
 ]
 
@@ -1508,6 +1519,26 @@ checksum = "fc1de2c688dc15305988b563c3854064043356019f97a4b46276fe734c4f07ea"
 dependencies = [
  "crypto-common",
  "subtle",
+]
+
+[[package]]
+name = "usernames"
+version = "0.1.0"
+source = "git+https://github.com/signalapp/libsignal?tag=v0.96.4#57d41c877d5a55d881fb3f52d9b16900118ee29b"
+dependencies = [
+ "curve25519-dalek",
+ "displaydoc",
+ "hkdf",
+ "hmac",
+ "log",
+ "poksho",
+ "prost",
+ "prost-build",
+ "rand",
+ "sha2",
+ "signal-crypto",
+ "subtle",
+ "thiserror",
 ]
 
 [[package]]

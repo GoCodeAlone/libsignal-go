@@ -49,6 +49,7 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/kem"
 	"github.com/GoCodeAlone/libsignal-go/protocol"
 	"github.com/GoCodeAlone/libsignal-go/stores/inmem"
+	"github.com/GoCodeAlone/libsignal-go/usernames"
 )
 
 // callTimeout bounds a single request/response exchange. The watchdog guards
@@ -246,6 +247,62 @@ func TestInteropPing(t *testing.T) {
 	h.ok("ping", nil, &res)
 	if !res.Pong {
 		t.Fatal("ping: pong != true")
+	}
+}
+
+// TestInteropUsernameLink checks username-link agreement in both directions:
+// Go creates a link that Rust decrypts, then Rust creates the same deterministic
+// link from the recorded entropy/IV and Go decrypts it.
+func TestInteropUsernameLink(t *testing.T) {
+	h := newHarness(t)
+	entropy := [usernames.LinkEntropySize]byte{
+		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+		0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+		0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+		0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+	}
+	iv := []byte{
+		0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+		0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+	}
+	const username = "test_username.42"
+
+	goLink, err := usernames.CreateLinkFromReader(bytes.NewReader(iv), username, &entropy)
+	if err != nil {
+		t.Fatalf("CreateLinkFromReader: %v", err)
+	}
+	var decryptRes struct {
+		Username string `json:"username"`
+	}
+	h.ok("username_link.decrypt", map[string]any{
+		"entropy":            hx(entropy[:]),
+		"encrypted_username": hx(goLink.EncryptedUsername),
+	}, &decryptRes)
+	if decryptRes.Username != username {
+		t.Fatalf("Rust decrypted username = %q, want %q", decryptRes.Username, username)
+	}
+
+	var createRes struct {
+		Entropy           string `json:"entropy"`
+		EncryptedUsername string `json:"encrypted_username"`
+	}
+	h.ok("username_link.create", map[string]any{
+		"username": username,
+		"entropy":  hx(entropy[:]),
+		"iv":       hx(iv),
+	}, &createRes)
+	if createRes.Entropy != hx(entropy[:]) {
+		t.Fatalf("Rust returned entropy %s, want %s", createRes.Entropy, hx(entropy[:]))
+	}
+	if createRes.EncryptedUsername != hx(goLink.EncryptedUsername) {
+		t.Fatalf("Rust encrypted username %s != Go %s", createRes.EncryptedUsername, hx(goLink.EncryptedUsername))
+	}
+	got, err := usernames.DecryptUsername(entropy, mustDecodeHex(t, createRes.EncryptedUsername))
+	if err != nil {
+		t.Fatalf("DecryptUsername: %v", err)
+	}
+	if got != username {
+		t.Fatalf("Go decrypted username = %q, want %q", got, username)
 	}
 }
 

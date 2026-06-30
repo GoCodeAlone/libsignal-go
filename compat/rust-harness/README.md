@@ -70,6 +70,9 @@ Domains:
   `SenderKeyDistributionMessage`, built with fixed keys.
 - `fingerprint` — display + scannable fingerprints (v1 and v2) for a fixed
   identity-key pair.
+- `username-links` — username-link entropy, deterministic IV, encrypted username
+  bytes (`IV || ciphertext || HMAC`), and upstream-decrypted username from
+  `rust/usernames`.
 - `mlkem-incremental` — byte-exact KATs for libcrux 0.0.8's incremental
   ML-KEM-768 (the KEM SPQR uses): the keygen split (`pk1`/`pk2`/`dk`), two-phase
   encapsulation (`ct1`, `encaps_state`, `ct2`, `shared_secret`), and
@@ -113,6 +116,9 @@ Methods (extended in later tasks — session/group/sealed-sender ops arrive then
 - `curve.verify` `{ public_key, message, signature }` → `{ verified }`
 - `curve.agree` `{ private_key, public_key }` → `{ shared }`
 - `kem.decapsulate` `{ secret_key, ciphertext }` → `{ shared_secret }`
+- `username_link.create` `{ username, entropy, iv }` →
+  `{ entropy, encrypted_username }`
+- `username_link.decrypt` `{ entropy, encrypted_username }` → `{ username }`
 - `message.parse_sender_key` `{ serialized }` →
   `{ distribution_id, chain_id, iteration }`
 

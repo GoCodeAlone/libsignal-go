@@ -22,9 +22,10 @@ ordinary Go package. The goal is byte-for-byte wire compatibility with the
 upstream Rust implementation for the client-side protocol surface, enforced by
 cross-implementation compatibility checks as required CI gates.
 
-> Status: **`v0.1.0` released** — the full client protocol is implemented and
-> interop-verified byte-compatible with libsignal v0.96.4 (both roles). Early
-> development: the API may still change across `0.x` releases; review the
+> Status: **mainline** — the full client protocol is implemented and
+> interop-verified byte-compatible with libsignal v0.96.4 (both roles), with
+> account-key derivations and username-link support added in the `0.x` line.
+> Early development: the API may still change across `0.x` releases; review the
 > security posture before production use.
 
 ## Status
@@ -112,10 +113,11 @@ deliberate non-goals for this module.
 | Fingerprints (numeric + scannable) | ✅ implemented | [`fingerprint`](fingerprint/) | display + scannable byte-equal vs upstream |
 | Sparse Post-Quantum Ratchet (SPQR) | ✅ implemented | [`spqr`](spqr/), [`internal/mlkem768incr`](internal/mlkem768incr/), [`internal/spqr/chunked`](internal/spqr/chunked/) | incremental ML-KEM-768 + GF(2^16) chunked transport + state machine, mixed into the session message keys; SPQR-negotiated interop both roles at v0.96.4 |
 | Account keys (entropy pool, SVR key, PIN hash, backup key derivations) | ✅ implemented | [`accountkeys`](accountkeys/) | v0.96.4 known vectors for account entropy, backup ID, PIN hash, and local PIN PHC |
+| Username validation, candidates, and username links | ✅ implemented | [`usernames`](usernames/) | v0.96.4 username-link vectors; hash/proof deferred to zk/poksho phase |
 | X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.4 cannot initiate v3 |
 | ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
 | zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
-| usernames, key transparency, SVR/svrb | ⛔ excluded | — | non-goal |
+| username hash/proof, key transparency, SVR/svrb | ⛔ excluded | — | non-goal until the zk/poksho surface is ported |
 | device transfer, media, message backup, net | ⛔ excluded | — | non-goal |
 | `incremental_mac`, HPKE, `session_cipher_legacy` | ⛔ excluded | — | upstream test-only |
 | Language bridges (Java / Swift / Node) | ⛔ excluded | — | deleted from this fork, not ported |
@@ -128,8 +130,8 @@ guarantees beyond the documented Go posture are also out of scope.
 send and receive messages — 1:1 sessions (PQXDH), group messaging, sealed sender
 (v1 + v2), fingerprints, and the SPQR post-quantum ratchet — is ✅ implemented and
 interop-proven against mainline. The excluded rows are deliberate non-goals:
-server / credential / service surfaces (zkgroup, usernames, key transparency,
-SVR), app- and transport-layer features (device transfer, media,
+server / credential / service surfaces (zkgroup, username hash/proof, key
+transparency, SVR), app- and transport-layer features (device transfer, media,
 message backup, net), upstream test-only code (`incremental_mac`, the HPKE test
 harness, `session_cipher_legacy`), language bindings (this module *is* the Go
 binding), or behaviors upstream v0.96.4 itself does not perform — v3 *session
