@@ -26,6 +26,7 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/protocol"
 	"github.com/GoCodeAlone/libsignal-go/ratchet"
 	"github.com/GoCodeAlone/libsignal-go/stores/inmem"
+	"github.com/GoCodeAlone/libsignal-go/usernames"
 )
 
 // loadVectors reads and JSON-decodes compat/vectors/<domain>.json into dst.
@@ -96,6 +97,47 @@ func TestAccountKeysVectors(t *testing.T) {
 		hash := accountkeys.CreatePinHash([]byte(c.PIN), salt)
 		if !bytes.Equal(hash.AccessKey[:], mustHex(t, c.AccessKey)) {
 			t.Fatalf("pin case %d: access key = %x, want %s", i, hash.AccessKey, c.AccessKey)
+		}
+	}
+}
+
+// --- username-links ---
+
+func TestUsernameLinkVectors(t *testing.T) {
+	var batch struct {
+		Seed  string `json:"seed"`
+		Cases []struct {
+			Username          string `json:"username"`
+			Entropy           string `json:"entropy"`
+			IV                string `json:"iv"`
+			EncryptedUsername string `json:"encrypted_username"`
+			Decrypted         string `json:"decrypted"`
+		} `json:"cases"`
+	}
+	loadVectors(t, "username-links", &batch)
+	if len(batch.Cases) == 0 {
+		t.Fatal("no username-link cases")
+	}
+	for i, c := range batch.Cases {
+		entropyRaw := mustHex(t, c.Entropy)
+		if len(entropyRaw) != usernames.LinkEntropySize {
+			t.Fatalf("case %d: entropy len %d", i, len(entropyRaw))
+		}
+		var entropy [usernames.LinkEntropySize]byte
+		copy(entropy[:], entropyRaw)
+		link, err := usernames.CreateLinkFromReader(bytes.NewReader(mustHex(t, c.IV)), c.Username, &entropy)
+		if err != nil {
+			t.Fatalf("case %d: CreateLinkFromReader: %v", i, err)
+		}
+		if !bytes.Equal(link.EncryptedUsername, mustHex(t, c.EncryptedUsername)) {
+			t.Fatalf("case %d: encrypted username = %x, want %s", i, link.EncryptedUsername, c.EncryptedUsername)
+		}
+		got, err := usernames.DecryptUsername(entropy, link.EncryptedUsername)
+		if err != nil {
+			t.Fatalf("case %d: DecryptUsername: %v", i, err)
+		}
+		if got != c.Decrypted {
+			t.Fatalf("case %d: decrypted username = %q, want %q", i, got, c.Decrypted)
 		}
 	}
 }
