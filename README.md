@@ -75,6 +75,21 @@ the upstream patch-release changes since v0.96.0 are primarily net/client,
 language-bridge, and zkgroup API additions outside this module's protocol-core
 scope, with only an inactive ML-KEM-1024 metadata fix touching protocol code.
 
+### Upstream release monitoring
+
+The scheduled [`upstream-pin`](.github/workflows/upstream-pin.yml) workflow
+checks `signalapp/libsignal` releases weekly and opens a PR when the pinned Rust
+compat harness is behind. The PR updates `compat/rust-harness`, regenerates all
+committed vectors, and runs the live Rust-harness interop tests before enabling
+GitHub auto-merge. It requires a `GH_MANAGEMENT_TOKEN` secret with contents and
+pull-request write access so the generated PR triggers the required checks. A
+green PR is expected to merge automatically; a red PR is the manual porting
+queue for upstream compatibility changes.
+
+The separate [`compat-drift`](.github/workflows/compat-drift.yml) workflow keeps
+watch on upstream `main` and files an informational issue when unreleased drift
+appears. It does not modify the pin and does not gate pull requests.
+
 ## Scope matrix
 
 The per-domain status of the client protocol surface. **Implemented** domains
