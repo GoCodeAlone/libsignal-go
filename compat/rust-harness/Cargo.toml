@@ -19,16 +19,14 @@ edition = "2021"
 members = ["."]
 
 [dependencies]
-# Pinned to the Stage-2 mainline-compat target tag v0.96.0 (ADR 0001 re-pin;
-# T29 advanced it from the Stage-1 pin v0.91.0). v0.96.0 is the latest upstream
-# release and stays within the Scope Manifest — spqr is the same v1.5.1 pin,
-# libcrux-ml-kem the same 0.0.8, and all protocol protos are byte-identical to
-# v0.91.0; the only behavioral change is ratchet.rs min_version V0→V1 (SPQR now
-# mandatory for new sessions), which the ported SPQR + V0-negotiation path
-# already handle (no ADR/amendment needed — see the T29 re-pin notes). The rand
-# stack must match upstream's (rand 0.9 family) so a seeded ChaCha20Rng
-# satisfies the rand_core 0.9 CryptoRng/RngCore bounds the libsignal APIs take.
-libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.96.0", package = "libsignal-protocol" }
+# Pinned to the current Stage-2 mainline-compat target. v0.96.4 is the latest
+# upstream release reviewed on 2026-06-30. Its v0.96.0..v0.96.4 protocol-core
+# delta is limited to inactive ML-KEM-1024 parameter metadata; the rest is
+# net/client, bridge, and zkgroup API surface outside this module's protocol-core
+# scope. The rand stack must match upstream's (rand 0.9 family) so a seeded
+# ChaCha20Rng satisfies the rand_core 0.9 CryptoRng/RngCore bounds the libsignal
+# APIs take.
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.96.4", package = "libsignal-protocol" }
 rand = "0.9"
 rand_chacha = "0.9"
 rand_core = "0.9"
@@ -38,7 +36,7 @@ rand_core = "0.9"
 futures-util = "0.3"
 # Crypto primitives for the hkdf domain: the chain/root/message-key and
 # pqxdh-secret derivations are pub(crate) upstream, so the harness reproduces
-# them against the same crate versions, matching the v0.96.0 source exactly
+# them against the same crate versions, matching the v0.96.4 source exactly
 # (these version-stable formulas are unchanged from v0.91.0 — the hkdf vectors
 # are byte-identical across the re-pin).
 hkdf = "0.12"
@@ -69,7 +67,7 @@ futures = "0.3"
 # port handles defensively regardless — see gen_mlkem_incremental).
 libcrux-ml-kem = { version = "=0.0.8", default-features = false, features = ["incremental", "mlkem768", "alloc"] }
 # The SPQR crate itself, pinned to the SAME rev libsignal pulls in transitively
-# (git tag v1.5.1, rev f2589fe — unchanged between v0.91.0 and the v0.96.0 pin;
+# (git tag v1.5.1, rev f2589fe — unchanged between v0.91.0 and the v0.96.4 pin;
 # see Cargo.lock), with `test-utils`
 # enabled. test-utils is a dependency-free feature flag that re-exports SPQR's
 # otherwise pub(crate) `encoding` module (GF16 + the polynomial chunk

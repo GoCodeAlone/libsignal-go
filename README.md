@@ -23,7 +23,7 @@ upstream Rust implementation for the client-side protocol surface, enforced by
 cross-implementation compatibility checks as required CI gates.
 
 > Status: **`v0.1.0` released** — the full client protocol is implemented and
-> interop-verified byte-compatible with libsignal v0.96.0 (both roles). Early
+> interop-verified byte-compatible with libsignal v0.96.4 (both roles). Early
 > development: the API may still change across `0.x` releases; review the
 > security posture before production use.
 
@@ -60,28 +60,33 @@ target, so that the interop gate is meaningful and reproducible.
   Post-Quantum Ratchet (SPQR) was made mandatory for new sessions — while SPQR
   was being ported (P5–P9 ran against this pin).
 - **Stage 2 (current):** SPQR is ported (P10) and the compat harness is
-  re-pinned to **libsignal v0.96.0**, the current upstream mainline release. The
+  re-pinned to **libsignal v0.96.4**, the current upstream mainline release. The
   compatibility claim now covers the full current-mainline protocol surface,
-  including SPQR-negotiated sessions (v0.96.0 requires SPQR — `min_version: V1`).
+  including SPQR-negotiated sessions (v0.96.4 requires SPQR — `min_version: V1`).
   The committed vectors are byte-identical across the re-pin (the protos, the
   `spqr` v1.5.1 pin, and `libcrux-ml-kem` 0.0.8 are unchanged from v0.91.0), and
   the live Rust↔Go interop passes both roles with SPQR on the wire.
 
 The rationale, alternatives considered, and the exact pin boundary are recorded
 in [`decisions/0001-spqr-staged-compat.md`](decisions/0001-spqr-staged-compat.md).
+The v0.96.4 re-pin is recorded in
+[`decisions/0006-protocol-core-and-workflow-signal-split.md`](decisions/0006-protocol-core-and-workflow-signal-split.md):
+the upstream patch-release changes since v0.96.0 are primarily net/client,
+language-bridge, and zkgroup API additions outside this module's protocol-core
+scope, with only an inactive ML-KEM-1024 metadata fix touching protocol code.
 
 ## Scope matrix
 
 The per-domain status of the client protocol surface. **Implemented** domains
-are wire-checked against upstream **libsignal v0.96.0** (committed Rust-generated
+are wire-checked against upstream **libsignal v0.96.4** (committed Rust-generated
 vectors plus live Rust↔Go interop, per the compatibility staging above).
 **Staged** domains are deferred to a named phase. **Excluded** domains are
 deliberate non-goals for this module.
 
 | Domain | Status | Package | Notes |
 |--------|--------|---------|-------|
-| X25519 ECDH + XEdDSA sign/verify | ✅ implemented | [`curve`](curve/) | v0.96.0 vectors + interop |
-| Kyber1024 KEM (encaps/decaps) | ✅ implemented | [`kem`](kem/) | v0.96.0 decaps vectors + interop |
+| X25519 ECDH + XEdDSA sign/verify | ✅ implemented | [`curve`](curve/) | v0.96.4 vectors + interop |
+| Kyber1024 KEM (encaps/decaps) | ✅ implemented | [`kem`](kem/) | v0.96.4 decaps vectors + interop |
 | Wire messages (Signal, PreKeySignal, SenderKey, SKDM) | ✅ implemented | [`protocol`](protocol/) | golden-byte vectors both directions |
 | Symmetric primitives (AES-CBC/CTR/GCM, HKDF, HMAC) | ✅ implemented | [`internal/crypto`](internal/crypto/) | internal building blocks |
 | Double Ratchet keys + session state + stores | ✅ implemented | [`ratchet`](ratchet/), [`session`](session/), [`stores`](stores/) | KDF + state KATs |
@@ -90,8 +95,8 @@ deliberate non-goals for this module.
 | Sealed sender v1 + v2 | ✅ implemented | [`sealedsender`](sealedsender/) | certificate chain + USMC + seal/decrypt, both versions, interop |
 | AES-256-GCM-SIV (RFC 8452) | ✅ implemented | [`internal/crypto/gcmsiv`](internal/crypto/gcmsiv/) | nonce-misuse-resistant AEAD for sealed sender v2 |
 | Fingerprints (numeric + scannable) | ✅ implemented | [`fingerprint`](fingerprint/) | display + scannable byte-equal vs upstream |
-| Sparse Post-Quantum Ratchet (SPQR) | ✅ implemented | [`spqr`](spqr/), [`internal/mlkem768incr`](internal/mlkem768incr/), [`internal/spqr/chunked`](internal/spqr/chunked/) | incremental ML-KEM-768 + GF(2^16) chunked transport + state machine, mixed into the session message keys; SPQR-negotiated interop both roles at v0.96.0 |
-| X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.0 cannot initiate v3 |
+| Sparse Post-Quantum Ratchet (SPQR) | ✅ implemented | [`spqr`](spqr/), [`internal/mlkem768incr`](internal/mlkem768incr/), [`internal/spqr/chunked`](internal/spqr/chunked/) | incremental ML-KEM-768 + GF(2^16) chunked transport + state machine, mixed into the session message keys; SPQR-negotiated interop both roles at v0.96.4 |
+| X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.4 cannot initiate v3 |
 | ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
 | zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
 | usernames, key transparency, SVR/svrb, account-keys | ⛔ excluded | — | non-goal |
@@ -99,7 +104,7 @@ deliberate non-goals for this module.
 | `incremental_mac`, HPKE, `session_cipher_legacy` | ⛔ excluded | — | upstream test-only |
 | Language bridges (Java / Swift / Node) | ⛔ excluded | — | deleted from this fork, not ported |
 
-Legend: ✅ implemented (v0.96.0 compat) · 🚧 staged to a later phase · ⛔
+Legend: ✅ implemented (v0.96.4 compat) · 🚧 staged to a later phase · ⛔
 excluded (deliberate non-goal). FIPS certification and key-material zeroization
 guarantees beyond the documented Go posture are also out of scope.
 
@@ -111,7 +116,7 @@ server / credential / service surfaces (zkgroup, usernames, key transparency,
 SVR, account-keys), app- and transport-layer features (device transfer, media,
 message backup, net), upstream test-only code (`incremental_mac`, the HPKE test
 harness, `session_cipher_legacy`), language bindings (this module *is* the Go
-binding), or behaviors upstream v0.96.0 itself does not perform — v3 *session
+binding), or behaviors upstream v0.96.4 itself does not perform — v3 *session
 initiation* (v3 *decrypt* is retained) and ML-KEM-1024 *activation* (wire type
 `0x0A` is reserved-only, exactly as in mainline).
 
