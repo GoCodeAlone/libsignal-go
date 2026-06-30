@@ -111,10 +111,11 @@ deliberate non-goals for this module.
 | AES-256-GCM-SIV (RFC 8452) | ✅ implemented | [`internal/crypto/gcmsiv`](internal/crypto/gcmsiv/) | nonce-misuse-resistant AEAD for sealed sender v2 |
 | Fingerprints (numeric + scannable) | ✅ implemented | [`fingerprint`](fingerprint/) | display + scannable byte-equal vs upstream |
 | Sparse Post-Quantum Ratchet (SPQR) | ✅ implemented | [`spqr`](spqr/), [`internal/mlkem768incr`](internal/mlkem768incr/), [`internal/spqr/chunked`](internal/spqr/chunked/) | incremental ML-KEM-768 + GF(2^16) chunked transport + state machine, mixed into the session message keys; SPQR-negotiated interop both roles at v0.96.4 |
+| Account keys (entropy pool, SVR key, PIN hash, backup key derivations) | ✅ implemented | [`accountkeys`](accountkeys/) | v0.96.4 known vectors for account entropy, backup ID, PIN hash, and local PIN PHC |
 | X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.4 cannot initiate v3 |
 | ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
 | zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
-| usernames, key transparency, SVR/svrb, account-keys | ⛔ excluded | — | non-goal |
+| usernames, key transparency, SVR/svrb | ⛔ excluded | — | non-goal |
 | device transfer, media, message backup, net | ⛔ excluded | — | non-goal |
 | `incremental_mac`, HPKE, `session_cipher_legacy` | ⛔ excluded | — | upstream test-only |
 | Language bridges (Java / Swift / Node) | ⛔ excluded | — | deleted from this fork, not ported |
@@ -128,7 +129,7 @@ send and receive messages — 1:1 sessions (PQXDH), group messaging, sealed send
 (v1 + v2), fingerprints, and the SPQR post-quantum ratchet — is ✅ implemented and
 interop-proven against mainline. The excluded rows are deliberate non-goals:
 server / credential / service surfaces (zkgroup, usernames, key transparency,
-SVR, account-keys), app- and transport-layer features (device transfer, media,
+SVR), app- and transport-layer features (device transfer, media,
 message backup, net), upstream test-only code (`incremental_mac`, the HPKE test
 harness, `session_cipher_legacy`), language bindings (this module *is* the Go
 binding), or behaviors upstream v0.96.4 itself does not perform — v3 *session
@@ -170,6 +171,8 @@ Runnable examples live alongside the packages they document (Go renders them in
   distribution and a group-encrypted message.
 - [`sealedsender.Example_sealedSender`](sealedsender/example_test.go) — a sealed
   sender v1 message with certificate-chain validation.
+- [`accountkeys`](accountkeys/) — account entropy, SVR key, PIN hash, and backup
+  key derivations.
 
 Browse the full API with:
 
