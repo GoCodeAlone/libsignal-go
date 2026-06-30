@@ -119,3 +119,17 @@ func TestLocalPINHashKnownPHCString(t *testing.T) {
 		t.Fatal("VerifyLocalPINHash returned true for wrong PIN")
 	}
 }
+
+func TestVerifyLocalPINHashRejectsMalformedPHC(t *testing.T) {
+	cases := []string{
+		"$argon2i$v=x$m=512,t=64,p=1$ICEiIyQlJicoKSorLC0uLw$NeZzhiNv4cRmRMct9scf7d838bzmHJvrZtU/0BH0v/U",
+		"$argon2i$v=19$m=512,t=x,p=1$ICEiIyQlJicoKSorLC0uLw$NeZzhiNv4cRmRMct9scf7d838bzmHJvrZtU/0BH0v/U",
+		"$argon2i$v=19$m=512,t=64,p=1$ICEiIyQlJicoKSorLC0uLwAAAA$NeZzhiNv4cRmRMct9scf7d838bzmHJvrZtU/0BH0v/U",
+		"$argon2i$v=19$m=512,t=64,p=1$ICEiIyQlJicoKSorLC0uLw$NeZzhiNv4cRmRMct9scf7d838bzmHJvrZtU/0BH0v/UAAAA",
+	}
+	for _, tc := range cases {
+		if _, err := VerifyLocalPINHash(tc, []byte("apassword")); !errors.Is(err, ErrInvalidPHCString) {
+			t.Fatalf("VerifyLocalPINHash(%q) error = %v, want ErrInvalidPHCString", tc, err)
+		}
+	}
+}

@@ -23,6 +23,8 @@ import (
 const (
 	accountEntropyPoolLen  = 64
 	accountEntropyAlphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+	localPINSaltLen        = 16
+	localPINHashLen        = 32
 
 	// SVRKeyLen is the length in bytes of a derived SVR master key.
 	SVRKeyLen = 32
@@ -85,7 +87,7 @@ func ParseAccountEntropyPool(s string) (AccountEntropyPool, error) {
 	var out AccountEntropyPool
 	copy(out.bytes[:], s)
 	for _, b := range out.bytes {
-		if !((b >= '0' && b <= '9') || (b >= 'a' && b <= 'z')) {
+		if (b < '0' || b > '9') && (b < 'a' || b > 'z') {
 			return AccountEntropyPool{}, fmt.Errorf("%w: invalid character %q", ErrInvalidAccountEntropyPool, b)
 		}
 	}
@@ -206,7 +208,7 @@ func MakePINSalt(username string, groupID uint64) [32]byte {
 
 // LocalPINHash creates a PHC-encoded local PIN hash with a random salt.
 func LocalPINHash(pin []byte) (string, error) {
-	var salt [16]byte
+	var salt [localPINSaltLen]byte
 	if _, err := io.ReadFull(rand.Reader, salt[:]); err != nil {
 		return "", err
 	}
@@ -214,8 +216,8 @@ func LocalPINHash(pin []byte) (string, error) {
 }
 
 // LocalPINHashWithSalt creates a PHC-encoded local PIN hash with salt.
-func LocalPINHashWithSalt(pin []byte, salt [16]byte) string {
-	hash := argon2.Key(pin, salt[:], 64, 512, 1, 32)
+func LocalPINHashWithSalt(pin []byte, salt [localPINSaltLen]byte) string {
+	hash := argon2.Key(pin, salt[:], 64, 512, 1, localPINHashLen)
 	return fmt.Sprintf("$argon2i$v=19$m=512,t=64,p=1$%s$%s", phcB64(salt[:]), phcB64(hash))
 }
 
@@ -225,10 +227,10 @@ func VerifyLocalPINHash(encoded string, pin []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if params.alg != "argon2i" || params.version != 19 || params.memory != 512 || params.time != 64 || params.parallelism != 1 || len(want) != 32 {
+	if params.alg != "argon2i" || params.version != 19 || params.memory != 512 || params.time != 64 || params.parallelism != 1 || len(salt) != localPINSaltLen || len(want) != localPINHashLen {
 		return false, fmt.Errorf("%w: unsupported argon2 parameters", ErrInvalidPHCString)
 	}
-	got := argon2.Key(pin, salt, 64, 512, 1, 32)
+	got := argon2.Key(pin, salt, 64, 512, 1, localPINHashLen)
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 
@@ -251,7 +253,7 @@ func parsePHC(encoded string) (phcParams, []byte, []byte, error) {
 	}
 	version, err := strconv.Atoi(strings.TrimPrefix(parts[2], "v="))
 	if err != nil {
-		return phcParams{}, nil, nil, err
+		return phcParams{}, nil, nil, fmt.Errorf("%w: %v", ErrInvalidPHCString, err)
 	}
 	params.version = version
 	for _, kv := range strings.Split(parts[3], ",") {
@@ -261,7 +263,7 @@ func parsePHC(encoded string) (phcParams, []byte, []byte, error) {
 		}
 		value, err := strconv.Atoi(pair[1])
 		if err != nil {
-			return phcParams{}, nil, nil, err
+			return phcParams{}, nil, nil, fmt.Errorf("%w: %v", ErrInvalidPHCString, err)
 		}
 		switch pair[0] {
 		case "m":
@@ -274,13 +276,16 @@ func parsePHC(encoded string) (phcParams, []byte, []byte, error) {
 			return phcParams{}, nil, nil, ErrInvalidPHCString
 		}
 	}
+	if len(parts[4]) != base64.RawStdEncoding.EncodedLen(localPINSaltLen) || len(parts[5]) != base64.RawStdEncoding.EncodedLen(localPINHashLen) {
+		return phcParams{}, nil, nil, ErrInvalidPHCString
+	}
 	salt, err := phcDecode(parts[4])
 	if err != nil {
-		return phcParams{}, nil, nil, err
+		return phcParams{}, nil, nil, fmt.Errorf("%w: %v", ErrInvalidPHCString, err)
 	}
 	hash, err := phcDecode(parts[5])
 	if err != nil {
-		return phcParams{}, nil, nil, err
+		return phcParams{}, nil, nil, fmt.Errorf("%w: %v", ErrInvalidPHCString, err)
 	}
 	return params, salt, hash, nil
 }
