@@ -10,7 +10,7 @@ Compatibility harness that wraps upstream
 behavioral reference oracle for the pure-Go port. It is a **dev/CI-only** crate:
 nothing in the Go module depends on it, and it is not published.
 
-The upstream dependency is pinned to a fixed tag, **`v0.96.0`** — the Stage-2
+The upstream dependency is pinned to a fixed tag, **`v0.96.4`** — the Stage-2
 mainline-compat target (T29 advanced it from the Stage-1 pin `v0.91.0`; see ADR
 0001). It lives in its own isolated Cargo workspace (`[workspace] members =
 ["."]`) so it is never pulled into a parent workspace, mirroring
@@ -37,7 +37,7 @@ If `protoc` is installed somewhere off `PATH`, point the build at it with the
 ## Toolchain
 
 `rust-toolchain.toml` pins `nightly-2026-03-23`, matching the toolchain
-upstream `v0.96.0` itself pins (the same nightly `v0.91.0` pinned, so the
+upstream `v0.96.4` itself pins (the same nightly `v0.91.0` pinned, so the
 Stage-2 re-pin needed no toolchain change). `rustup` fetches it on demand.
 
 ## Usage
@@ -124,6 +124,6 @@ The chain-key / root-key / message-keys / pqxdh-secret derivations are
 `pub(crate)` upstream, so the harness reproduces them with the same pinned
 crate versions (`hkdf`, `hmac`, `sha2` — matching upstream's pins). The formulas
 are taken verbatim from `rust/protocol/src/ratchet/keys.rs` and `ratchet.rs` at
-the v0.96.0 tag, which remain the contract (these version-stable formulas are
+the v0.96.4 tag, which remain the contract (these version-stable formulas are
 unchanged from v0.91.0 — the hkdf vectors are byte-identical across the re-pin).
 Every other domain calls the genuine public API.
