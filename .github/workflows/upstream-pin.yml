@@ -1,0 +1,91 @@
+#
+# Copyright 2026 libsignal-go contributors.
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Weekly upstream release monitor. When signalapp/libsignal publishes a newer
+# release than the pinned compat harness, this workflow refreshes the harness
+# tag/lock/vectors and opens an auto-merge PR. A green PR means the pure-Go port
+# still agrees with upstream on the covered compatibility surface; a red PR is
+# the work queue for required porting changes.
+
+name: upstream-pin
+
+on:
+  schedule:
+    # Mondays 08:00 UTC, after compat-drift has had a chance to report.
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Optional signalapp/libsignal tag to pin, for example v0.96.4"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compat/rust-harness
+
+      - name: require automation token
+        env:
+          GH_MANAGEMENT_TOKEN: ${{ secrets.GH_MANAGEMENT_TOKEN }}
+        run: |
+          if [ -z "${GH_MANAGEMENT_TOKEN:-}" ]; then
+            echo "::error::GH_MANAGEMENT_TOKEN is required so the generated PR triggers required checks and can auto-merge"
+            exit 1
+          fi
+
+      - name: update compat harness pin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+        run: scripts/update-upstream-pin.sh
+
+      - name: create compatibility PR
+        id: cpr
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GH_MANAGEMENT_TOKEN }}
+          branch: automation/upstream-libsignal-pin
+          delete-branch: true
+          commit-message: "chore: re-pin compat harness to upstream libsignal"
+          title: "chore: re-pin compat harness to latest upstream libsignal"
+          body: |
+            Automated upstream compatibility refresh.
+
+            This PR was produced by `.github/workflows/upstream-pin.yml`.
+
+            The updater:
+            - refreshes `compat/rust-harness` to the latest `signalapp/libsignal` release tag
+            - updates `compat/rust-harness/Cargo.lock`
+            - regenerates all committed `compat/vectors/*.json`
+            - runs vector consumption tests and live Rust-harness interop tests
+
+            If CI stays green, the PR is safe to auto-merge. If CI fails, treat
+            this PR as the manual porting queue for upstream compatibility drift.
+
+      - name: request auto-merge
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_MANAGEMENT_TOKEN }}
+          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        run: gh pr merge "$PR_NUMBER" --auto --squash --delete-branch
