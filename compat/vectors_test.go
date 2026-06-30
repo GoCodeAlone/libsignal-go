@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/GoCodeAlone/libsignal-go/accountkeys"
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/fingerprint"
@@ -37,6 +38,65 @@ func loadVectors(t *testing.T, domain string, dst any) {
 	}
 	if err := json.Unmarshal(data, dst); err != nil {
 		t.Fatalf("decode %s: %v", path, err)
+	}
+}
+
+// --- account-keys ---
+
+func TestAccountKeysVectors(t *testing.T) {
+	var batch struct {
+		Seed  string `json:"seed"`
+		Cases []struct {
+			EntropyPool string `json:"entropy_pool"`
+			SVRKey      string `json:"svr_key"`
+			BackupKey   string `json:"backup_key"`
+			ACI         string `json:"aci"`
+			BackupID    string `json:"backup_id"`
+		} `json:"cases"`
+		PinCases []struct {
+			PIN       string `json:"pin"`
+			Salt      string `json:"salt"`
+			AccessKey string `json:"access_key"`
+		} `json:"pin_cases"`
+	}
+	loadVectors(t, "account-keys", &batch)
+	if len(batch.Cases) == 0 {
+		t.Fatal("no account-keys cases")
+	}
+	for i, c := range batch.Cases {
+		pool, err := accountkeys.ParseAccountEntropyPool(c.EntropyPool)
+		if err != nil {
+			t.Fatalf("case %d: ParseAccountEntropyPool: %v", i, err)
+		}
+		if got := pool.DeriveSVRKey(); !bytes.Equal(got[:], mustHex(t, c.SVRKey)) {
+			t.Fatalf("case %d: SVR key = %x, want %s", i, got, c.SVRKey)
+		}
+		backupKey := accountkeys.DeriveBackupKey(pool)
+		if !bytes.Equal(backupKey[:], mustHex(t, c.BackupKey)) {
+			t.Fatalf("case %d: backup key = %x, want %s", i, backupKey, c.BackupKey)
+		}
+		aciRaw := mustHex(t, c.ACI)
+		if len(aciRaw) != address.UUIDLen {
+			t.Fatalf("case %d: aci len %d", i, len(aciRaw))
+		}
+		var aciUUID [address.UUIDLen]byte
+		copy(aciUUID[:], aciRaw)
+		backupID := backupKey.DeriveBackupID(address.NewACI(aciUUID))
+		if !bytes.Equal(backupID[:], mustHex(t, c.BackupID)) {
+			t.Fatalf("case %d: backup id = %x, want %s", i, backupID, c.BackupID)
+		}
+	}
+	for i, c := range batch.PinCases {
+		saltRaw := mustHex(t, c.Salt)
+		if len(saltRaw) != 32 {
+			t.Fatalf("pin case %d: salt len %d", i, len(saltRaw))
+		}
+		var salt [32]byte
+		copy(salt[:], saltRaw)
+		hash := accountkeys.CreatePinHash([]byte(c.PIN), salt)
+		if !bytes.Equal(hash.AccessKey[:], mustHex(t, c.AccessKey)) {
+			t.Fatalf("pin case %d: access key = %x, want %s", i, hash.AccessKey, c.AccessKey)
+		}
 	}
 }
 

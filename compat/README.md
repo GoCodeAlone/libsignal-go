@@ -28,6 +28,7 @@ This directory covers layer 1.
 | `vectors/fingerprint.json` | display + scannable fingerprints | `{seed, cases:[…]}` |
 | `vectors/sessions.json` | PQXDH master secret, **no one-time pre-key** (DH4 absent) | `{seed, cases:[…]}` |
 | `vectors/groups.json` | sender-key cipher golden bytes (SKDM + SKM) | `{seed, cases:[…]}` |
+| `vectors/account-keys.json` | account entropy, SVR key, backup key, backup ID, and PIN hash known values | `{seed, cases:[…], pin_cases:[…]}` |
 
 Each curve signing case and each `sender_key_message` case records the 64-byte
 XEdDSA signing `nonce`, so the Go consumer can reproduce the signature
@@ -146,3 +147,7 @@ encrypt -> Rust process + decrypt (`group.process_distribution` /
 `group.decrypt`), and Rust-distribute + encrypt -> Go process + decrypt
 (`group.create_distribution` / `group.encrypt`). The harness threads the
 serialized `SenderKeyRecord` through each call so its dispatch stays stateless.
+- **account-keys** — `account-keys.json` carries upstream v0.96.4 known values
+  for account entropy parsing, SVR key derivation, backup key and backup ID
+  derivation, Argon2id PIN hash access keys, and Argon2i PHC local PIN hash
+  verification.
