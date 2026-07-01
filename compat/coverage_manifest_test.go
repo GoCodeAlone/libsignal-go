@@ -93,7 +93,7 @@ func TestUpstreamPinAutomationRegeneratesAllVectorBackedDomains(t *testing.T) {
 
 func assertVectorHasCases(t *testing.T, filename string) {
 	t.Helper()
-	raw, err := os.ReadFile("vectors/" + filename)
+	raw, err := readCoverageVector(filename)
 	if err != nil {
 		t.Fatalf("read vector %s: %v", filename, err)
 	}
@@ -106,5 +106,16 @@ func assertVectorHasCases(t *testing.T, filename string) {
 	}
 	if len(batch.Cases)+len(batch.PinCases) == 0 {
 		t.Fatalf("vector %s has no cases", filename)
+	}
+}
+
+func readCoverageVector(filename string) ([]byte, error) {
+	switch filename {
+	case "account-keys.json":
+		return os.ReadFile("vectors/account-keys.json")
+	case "username-links.json":
+		return os.ReadFile("vectors/username-links.json")
+	default:
+		return nil, os.ErrNotExist
 	}
 }
