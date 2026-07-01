@@ -86,10 +86,20 @@ GitHub auto-merge. It requires a `GH_MANAGEMENT_TOKEN` secret with contents and
 pull-request write access so the generated PR triggers the required checks. A
 green PR is expected to merge automatically; a red PR is the manual porting
 queue for upstream compatibility changes.
+The same updater runs `proofreport.Report()` coverage checks so an upstream tag
+bump cannot silently leave proof/backup report rows pinned to stale fixtures.
 
 The separate [`compat-drift`](.github/workflows/compat-drift.yml) workflow keeps
 watch on upstream `main` and files an informational issue when unreleased drift
 appears. It does not modify the pin and does not gate pull requests.
+
+`compat.ProofInventory()` exposes the machine-readable proof/backup coverage
+manifest used by the monitor. Rows are intentionally conservative:
+`vector-backed` rows cite committed upstream fixtures, while `deferred` rows
+must name the missing upstream input before any parity claim can be made.
+`proofreport.Report()` wraps the same inventory with fixture SHA-256 digests and
+explicit parity-claim booleans for downstream Workflow and Encrypted Spaces
+readiness checks.
 
 ## Scope matrix
 
@@ -117,8 +127,8 @@ deliberate non-goals for this module.
 | X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.4 cannot initiate v3 |
 | ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
 | zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
-| username hash/proof, key transparency, SVR/svrb | 🚧 deferred | — | tracked in `compat/coverage_manifest.json`; account-key/SVR-key derivation remains vector-backed here, proof-system semantics move to encrypted-spaces-go |
-| device transfer, media, message backup, net | ⛔ excluded | — | non-goal |
+| username hash/proof, key transparency, SVR/svrb | 🚧 deferred | — | tracked in `compat.ProofInventory()` / `compat/coverage_manifest.json`; account-key/SVR-key derivation remains vector-backed here, proof-system semantics move to encrypted-spaces-go |
+| backup manifest, message backup, device transfer, media, net | 🚧 deferred / ⛔ excluded | — | backup/message-backup rows are tracked in `compat.ProofInventory()` with required upstream inputs; the remaining app/service surfaces are non-goals |
 | `incremental_mac`, HPKE, `session_cipher_legacy` | ⛔ excluded | — | upstream test-only |
 | Language bridges (Java / Swift / Node) | ⛔ excluded | — | deleted from this fork, not ported |
 
@@ -175,6 +185,8 @@ Runnable examples live alongside the packages they document (Go renders them in
   sender v1 message with certificate-chain validation.
 - [`accountkeys`](accountkeys/) — account entropy, SVR key, PIN hash, and backup
   key derivations.
+- [`proofreport`](proofreport/) — conservative proof/backup coverage report for
+  Workflow integrations.
 
 Browse the full API with:
 

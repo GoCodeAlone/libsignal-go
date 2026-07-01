@@ -3,10 +3,12 @@ package accountkeys
 import (
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/GoCodeAlone/libsignal-go/address"
+	"github.com/GoCodeAlone/libsignal-go/proofreport"
 )
 
 func mustHex32(t *testing.T, s string) [32]byte {
@@ -131,5 +133,28 @@ func TestVerifyLocalPINHashRejectsMalformedPHC(t *testing.T) {
 		if _, err := VerifyLocalPINHash(tc, []byte("apassword")); !errors.Is(err, ErrInvalidPHCString) {
 			t.Fatalf("VerifyLocalPINHash(%q) error = %v, want ErrInvalidPHCString", tc, err)
 		}
+	}
+}
+
+func TestProofReportTracksAccountBackupVectors(t *testing.T) {
+	report, err := proofreport.Report()
+	if err != nil {
+		t.Fatalf("proof report: %v", err)
+	}
+	row, ok := report.ByDomain()["account-backup-derivations"]
+	if !ok {
+		t.Fatal("proof report missing account-backup-derivations row")
+	}
+	if row.Status != proofreport.StatusVectorBacked {
+		t.Fatalf("status = %q, want %q", row.Status, proofreport.StatusVectorBacked)
+	}
+	if row.Fixture != "vectors/account-keys.json" || row.FixtureSHA256 == "" {
+		t.Fatalf("fixture = %q digest=%q, want account-keys fixture and digest", row.Fixture, row.FixtureSHA256)
+	}
+	if !slices.Contains(row.Packages, "accountkeys") {
+		t.Fatalf("packages = %v, want accountkeys", row.Packages)
+	}
+	if row.UpstreamTag != "v0.96.4" {
+		t.Fatalf("upstream tag = %q, want v0.96.4", row.UpstreamTag)
 	}
 }

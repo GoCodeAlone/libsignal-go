@@ -65,9 +65,11 @@ files.
 
 `coverage_manifest.json` records which Signal Workflow-adjacent domains are
 vector-backed in this module and which are explicitly deferred to proof-system
-work. The manifest is tested so automation cannot forget to regenerate
-harness-backed domains such as `username-links` when the upstream pin changes,
-and so non-harness vectors such as `account-keys` stay explicitly tracked.
+work. `ProofInventory()` exposes the same data to Go callers with stable domain,
+status, reason, and next-upstream-input fields. The manifest is tested so
+automation cannot forget to regenerate harness-backed domains such as
+`username-links` when the upstream pin changes, and so non-harness vectors such
+as `account-keys` stay explicitly tracked.
 
 - **curve** — Go verifies each upstream signature; Go re-signs with the recorded
   nonce and matches the upstream signature bytes; Go ECDH equals the upstream

@@ -79,9 +79,20 @@ func TestUpstreamPinAutomationRegeneratesAllVectorBackedDomains(t *testing.T) {
 			t.Fatalf("update-upstream-pin.sh does not regenerate %s", domain)
 		}
 	}
-	for _, path := range []string{"compat/coverage_manifest.json", "compat/coverage_manifest_test.go"} {
+	for _, path := range []string{
+		"compat/coverage_manifest.json",
+		"compat/coverage_manifest_test.go",
+		"proofreport/report_test.go",
+		"accountkeys/accountkeys_test.go",
+		"usernames/usernames_test.go",
+	} {
 		if !strings.Contains(script, path) {
 			t.Fatalf("update-upstream-pin.sh does not update %s during repin", path)
+		}
+	}
+	for _, pkg := range []string{"./compat/", "./proofreport", "./accountkeys", "./usernames"} {
+		if !strings.Contains(script, pkg) {
+			t.Fatalf("update-upstream-pin.sh does not run proof coverage tests for %s", pkg)
 		}
 	}
 
@@ -92,6 +103,16 @@ func TestUpstreamPinAutomationRegeneratesAllVectorBackedDomains(t *testing.T) {
 	for _, domain := range []string{"username-links"} {
 		if !strings.Contains(string(workflow), domain) {
 			t.Fatalf("compat-drift pin leg does not check %s", domain)
+		}
+	}
+
+	upstreamPin, err := os.ReadFile("../.github/workflows/upstream-pin.yml")
+	if err != nil {
+		t.Fatalf("read upstream-pin workflow: %v", err)
+	}
+	for _, phrase := range []string{"proof report", "proofreport.Report()"} {
+		if !strings.Contains(string(upstreamPin), phrase) {
+			t.Fatalf("upstream-pin workflow does not document %q", phrase)
 		}
 	}
 }
