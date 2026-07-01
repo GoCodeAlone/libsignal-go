@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/GoCodeAlone/libsignal-go/proofreport"
 )
 
 func TestParseValidUsernames(t *testing.T) {
@@ -132,6 +135,36 @@ func TestUsernameLinkFailures(t *testing.T) {
 	longUsername := strings.Repeat("abcdefghijklmnopqrstuvwxyz", 5)
 	if _, err := CreateLinkFromReader(bytes.NewReader(make([]byte, linkIVSize)), longUsername, &entropy); !errors.Is(err, ErrInputDataTooLong) {
 		t.Fatalf("long username link err = %v, want ErrInputDataTooLong", err)
+	}
+}
+
+func TestProofReportTracksUsernameCoverage(t *testing.T) {
+	report, err := proofreport.Report()
+	if err != nil {
+		t.Fatalf("proof report: %v", err)
+	}
+	rows := report.ByDomain()
+
+	link := rows["username-links"]
+	if link.Status != proofreport.StatusVectorBacked {
+		t.Fatalf("username-links status = %q, want %q", link.Status, proofreport.StatusVectorBacked)
+	}
+	if link.Fixture != "vectors/username-links.json" || link.FixtureSHA256 == "" {
+		t.Fatalf("fixture = %q digest=%q, want username-link fixture and digest", link.Fixture, link.FixtureSHA256)
+	}
+	if !slices.Contains(link.Packages, "usernames") {
+		t.Fatalf("username-links packages = %v, want usernames", link.Packages)
+	}
+
+	hashProof := rows["username-hash-proof"]
+	if hashProof.Status != proofreport.StatusDeferred {
+		t.Fatalf("username-hash-proof status = %q, want %q", hashProof.Status, proofreport.StatusDeferred)
+	}
+	if hashProof.Reason == "" || hashProof.NextUpstreamInput == "" {
+		t.Fatalf("username-hash-proof reason=%q next=%q, want both set", hashProof.Reason, hashProof.NextUpstreamInput)
+	}
+	if hashProof.ParityClaim {
+		t.Fatal("username-hash-proof must not claim parity while deferred")
 	}
 }
 

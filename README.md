@@ -95,6 +95,9 @@ appears. It does not modify the pin and does not gate pull requests.
 manifest used by the monitor. Rows are intentionally conservative:
 `vector-backed` rows cite committed upstream fixtures, while `deferred` rows
 must name the missing upstream input before any parity claim can be made.
+`proofreport.Report()` wraps the same inventory with fixture SHA-256 digests and
+explicit parity-claim booleans for downstream Workflow and Encrypted Spaces
+readiness checks.
 
 ## Scope matrix
 
@@ -180,6 +183,8 @@ Runnable examples live alongside the packages they document (Go renders them in
   sender v1 message with certificate-chain validation.
 - [`accountkeys`](accountkeys/) — account entropy, SVR key, PIN hash, and backup
   key derivations.
+- [`proofreport`](proofreport/) — conservative proof/backup coverage report for
+  Workflow integrations.
 
 Browse the full API with:
 

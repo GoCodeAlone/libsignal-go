@@ -1,13 +1,15 @@
 package compat
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
 )
 
-//go:embed coverage_manifest.json
+//go:embed coverage_manifest.json vectors/account-keys.json vectors/username-links.json
 var coverageManifestFS embed.FS
 
 type CoverageStatus string
@@ -27,6 +29,7 @@ type CoverageRow struct {
 	Domain            string         `json:"name"`
 	Status            CoverageStatus `json:"status"`
 	Vector            string         `json:"vector,omitempty"`
+	VectorSHA256      string         `json:"-"`
 	Reason            string         `json:"reason,omitempty"`
 	NextUpstreamInput string         `json:"next_upstream_input,omitempty"`
 	Packages          []string       `json:"packages,omitempty"`
@@ -43,10 +46,29 @@ func ProofInventory() (CoverageInventory, error) {
 	if err := json.Unmarshal(raw, &inventory); err != nil {
 		return CoverageInventory{}, fmt.Errorf("decode coverage manifest: %w", err)
 	}
+	if err := inventory.hydrateVectorDigests(); err != nil {
+		return CoverageInventory{}, err
+	}
 	if err := inventory.Validate(); err != nil {
 		return CoverageInventory{}, err
 	}
 	return inventory, nil
+}
+
+func (i *CoverageInventory) hydrateVectorDigests() error {
+	for idx := range i.Rows {
+		row := &i.Rows[idx]
+		if row.Vector == "" {
+			continue
+		}
+		raw, err := coverageManifestFS.ReadFile(row.Vector)
+		if err != nil {
+			return fmt.Errorf("read coverage vector %s: %w", row.Vector, err)
+		}
+		sum := sha256.Sum256(raw)
+		row.VectorSHA256 = hex.EncodeToString(sum[:])
+	}
+	return nil
 }
 
 func (i CoverageInventory) ByDomain() map[string]CoverageRow {
