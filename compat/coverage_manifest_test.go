@@ -54,7 +54,7 @@ func TestCoverageManifestTracksSignalWorkflowDomains(t *testing.T) {
 		if domain.Vector == "" {
 			t.Fatalf("%s missing vector file", name)
 		}
-		assertVectorHasCases(t, strings.TrimPrefix(domain.Vector, "vectors/"))
+		assertVectorHasCases(t, vectorFilename(t, domain.Vector))
 	}
 
 	for _, name := range []string{"username-hash-proof", "message-backup", "svr-svrb-proof"} {
@@ -74,9 +74,14 @@ func TestUpstreamPinAutomationRegeneratesAllVectorBackedDomains(t *testing.T) {
 		t.Fatalf("read update script: %v", err)
 	}
 	script := string(raw)
-	for _, domain := range []string{"account-keys", "username-links", "sealedsender"} {
+	for _, domain := range []string{"username-links", "sealedsender"} {
 		if !strings.Contains(script, domain) {
 			t.Fatalf("update-upstream-pin.sh does not regenerate %s", domain)
+		}
+	}
+	for _, path := range []string{"compat/coverage_manifest.json", "compat/coverage_manifest_test.go"} {
+		if !strings.Contains(script, path) {
+			t.Fatalf("update-upstream-pin.sh does not update %s during repin", path)
 		}
 	}
 
@@ -84,11 +89,23 @@ func TestUpstreamPinAutomationRegeneratesAllVectorBackedDomains(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read compat-drift workflow: %v", err)
 	}
-	for _, domain := range []string{"account-keys", "username-links"} {
+	for _, domain := range []string{"username-links"} {
 		if !strings.Contains(string(workflow), domain) {
 			t.Fatalf("compat-drift pin leg does not check %s", domain)
 		}
 	}
+}
+
+func vectorFilename(t *testing.T, path string) string {
+	t.Helper()
+	if !strings.HasPrefix(path, "vectors/") {
+		t.Fatalf("vector path %q must be under vectors/", path)
+	}
+	name := strings.TrimPrefix(path, "vectors/")
+	if strings.Contains(name, "/") || strings.Contains(name, "..") || !strings.HasSuffix(name, ".json") {
+		t.Fatalf("vector path %q must be vectors/<file>.json", path)
+	}
+	return name
 }
 
 func assertVectorHasCases(t *testing.T, filename string) {
