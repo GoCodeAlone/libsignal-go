@@ -1,0 +1,51 @@
+{
+  "upstream_tag": "v0.96.4",
+  "domains": [
+    {
+      "name": "account-keys",
+      "status": "vector-backed",
+      "vector": "vectors/account-keys.json",
+      "packages": ["accountkeys"],
+      "notes": "Account entropy pool parsing, SVR key derivation, backup key derivation, backup ID derivation, and PIN access key vectors."
+    },
+    {
+      "name": "svr-key",
+      "status": "vector-backed",
+      "vector": "vectors/account-keys.json",
+      "packages": ["accountkeys"],
+      "notes": "SVR key derivation is covered as part of the account-keys vector batch."
+    },
+    {
+      "name": "backup-id",
+      "status": "vector-backed",
+      "vector": "vectors/account-keys.json",
+      "packages": ["accountkeys"],
+      "notes": "Backup key and backup ID derivations are covered as part of the account-keys vector batch."
+    },
+    {
+      "name": "username-links",
+      "status": "vector-backed",
+      "vector": "vectors/username-links.json",
+      "packages": ["usernames"],
+      "notes": "Username-link entropy, IV, ciphertext, HMAC, and upstream decrypted username."
+    },
+    {
+      "name": "username-hash-proof",
+      "status": "deferred",
+      "reason": "Requires zkgroup/poksho proof-system surfaces not carried by libsignal-go; tracked in encrypted-spaces-go proof parity work.",
+      "packages": ["usernames"]
+    },
+    {
+      "name": "message-backup",
+      "status": "deferred",
+      "reason": "Message-backup service/storage formats are outside this client-protocol module; only backup key and backup ID derivations are vector-backed here.",
+      "packages": ["accountkeys"]
+    },
+    {
+      "name": "svr-svrb-proof",
+      "status": "deferred",
+      "reason": "SVR key derivation is vector-backed here; SVR/SVRB service proof semantics require the later proof-system package boundary.",
+      "packages": ["accountkeys"]
+    }
+  ]
+}

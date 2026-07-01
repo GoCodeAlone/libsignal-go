@@ -72,7 +72,7 @@ jobs:
           # session/group/sealed RPC surface, so it regenerates every committed
           # compat/vectors domain — not just the version-stable primitives the
           # drift micro-crate is limited to. All must reproduce byte-for-byte.
-          for domain in curve kem-decaps hkdf messages fingerprint sessions groups sealedsender; do
+          for domain in curve kem-decaps hkdf messages fingerprint sessions groups sealedsender account-keys username-links; do
             "$bin" gen-vectors "$domain" > "$tmp/$domain.json"
             if ! diff -u "compat/vectors/$domain.json" "$tmp/$domain.json"; then
               echo "::error::pinned harness no longer reproduces compat/vectors/$domain.json"

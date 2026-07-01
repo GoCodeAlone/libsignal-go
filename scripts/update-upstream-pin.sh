@@ -68,7 +68,7 @@ perl -0pi -e 's/\Q$ENV{CURRENT_TAG}\E/$ENV{UPSTREAM_TAG}/g' \
 )
 
 harness="compat/rust-harness/target/release/rust-harness"
-for domain in curve kem-decaps hkdf messages fingerprint sessions groups sealedsender; do
+for domain in curve kem-decaps hkdf messages fingerprint sessions groups sealedsender account-keys username-links; do
 	"$harness" gen-vectors "$domain" > "compat/vectors/$domain.json"
 done
 
