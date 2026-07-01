@@ -86,6 +86,8 @@ GitHub auto-merge. It requires a `GH_MANAGEMENT_TOKEN` secret with contents and
 pull-request write access so the generated PR triggers the required checks. A
 green PR is expected to merge automatically; a red PR is the manual porting
 queue for upstream compatibility changes.
+The same updater runs `proofreport.Report()` coverage checks so an upstream tag
+bump cannot silently leave proof/backup report rows pinned to stale fixtures.
 
 The separate [`compat-drift`](.github/workflows/compat-drift.yml) workflow keeps
 watch on upstream `main` and files an informational issue when unreleased drift

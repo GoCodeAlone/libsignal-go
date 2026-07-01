@@ -57,6 +57,9 @@ perl -0pi -e 's/\Q$ENV{CURRENT_TAG}\E/$ENV{UPSTREAM_TAG}/g' \
 	compat/README.md \
 	compat/coverage_manifest.json \
 	compat/coverage_manifest_test.go \
+	proofreport/report_test.go \
+	accountkeys/accountkeys_test.go \
+	usernames/usernames_test.go \
 	compat/rust-harness/README.md \
 	compat/rust-harness/Cargo.toml \
 	compat/session_interop_test.go \
@@ -75,6 +78,7 @@ for domain in curve kem-decaps hkdf messages fingerprint sessions groups sealeds
 done
 
 go test ./compat/ -v
+go test ./proofreport ./accountkeys ./usernames -run 'Report|Parity|Backup|SVR|Username' -v
 COMPAT_HARNESS_BIN="$PWD/$harness" go test ./compat/ -tags=interop -v
 
 echo "compat harness updated to $requested_tag"

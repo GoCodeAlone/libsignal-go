@@ -79,6 +79,7 @@ jobs:
             - updates `compat/rust-harness/Cargo.lock`
             - regenerates all committed `compat/vectors/*.json`
             - runs vector consumption tests and live Rust-harness interop tests
+            - runs proof report checks via `proofreport.Report()` so deferred and vector-backed coverage rows stay aligned with the upstream pin
 
             If CI stays green, the PR is safe to auto-merge. If CI fails, treat
             this PR as the manual porting queue for upstream compatibility drift.
