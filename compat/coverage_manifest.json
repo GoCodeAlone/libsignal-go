@@ -23,6 +23,13 @@
       "notes": "Backup key and backup ID derivations are covered as part of the account-keys vector batch."
     },
     {
+      "name": "account-backup-derivations",
+      "status": "vector-backed",
+      "vector": "vectors/account-keys.json",
+      "packages": ["accountkeys"],
+      "notes": "Backup key, backup ID, local metadata key, media key, thumbnail key, and backup forward-secrecy derivation formulas are owned by accountkeys; committed fixtures currently vector-lock the root backup key and backup ID."
+    },
+    {
       "name": "username-links",
       "status": "vector-backed",
       "vector": "vectors/username-links.json",
@@ -33,19 +40,34 @@
       "name": "username-hash-proof",
       "status": "deferred",
       "reason": "Requires zkgroup/poksho proof-system surfaces not carried by libsignal-go; tracked in encrypted-spaces-go proof parity work.",
+      "next_upstream_input": "Upstream username hash/proof vectors or a carried Go proof-system package boundary.",
       "packages": ["usernames"]
+    },
+    {
+      "name": "backup-manifest",
+      "status": "deferred",
+      "reason": "Backup manifest serialization and validation live in upstream message-backup/app storage code, not this client-protocol module.",
+      "next_upstream_input": "Stable upstream backup manifest fixtures and a selected Go package boundary for message backup metadata."
     },
     {
       "name": "message-backup",
       "status": "deferred",
       "reason": "Message-backup service/storage formats are outside this client-protocol module; only backup key and backup ID derivations are vector-backed here.",
+      "next_upstream_input": "Stable upstream message-backup export/import fixtures and storage-format schemas.",
       "packages": ["accountkeys"]
     },
     {
       "name": "svr-svrb-proof",
       "status": "deferred",
       "reason": "SVR key derivation is vector-backed here; SVR/SVRB service proof semantics require the later proof-system package boundary.",
+      "next_upstream_input": "Upstream SVR/SVRB proof fixtures plus the zkcredential/poksho primitives needed to verify them.",
       "packages": ["accountkeys"]
+    },
+    {
+      "name": "key-transparency",
+      "status": "deferred",
+      "reason": "Key-transparency checkpoint and search proof verification require upstream transparency fixtures and a proof-system boundary outside the protocol core.",
+      "next_upstream_input": "Stable upstream key-transparency checkpoint/search proof vectors and the hash/proof primitives needed to consume them."
     }
   ]
 }

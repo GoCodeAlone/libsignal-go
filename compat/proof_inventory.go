@@ -1,0 +1,109 @@
+package compat
+
+import (
+	"embed"
+	"encoding/json"
+	"fmt"
+	"slices"
+)
+
+//go:embed coverage_manifest.json
+var coverageManifestFS embed.FS
+
+type CoverageStatus string
+
+const (
+	CoverageStatusVectorBacked CoverageStatus = "vector-backed"
+	CoverageStatusStructural   CoverageStatus = "structural"
+	CoverageStatusDeferred     CoverageStatus = "deferred"
+)
+
+type CoverageInventory struct {
+	UpstreamTag string        `json:"upstream_tag"`
+	Rows        []CoverageRow `json:"domains"`
+}
+
+type CoverageRow struct {
+	Domain            string         `json:"name"`
+	Status            CoverageStatus `json:"status"`
+	Vector            string         `json:"vector,omitempty"`
+	Reason            string         `json:"reason,omitempty"`
+	NextUpstreamInput string         `json:"next_upstream_input,omitempty"`
+	Packages          []string       `json:"packages,omitempty"`
+	Notes             string         `json:"notes,omitempty"`
+}
+
+func ProofInventory() (CoverageInventory, error) {
+	raw, err := coverageManifestFS.ReadFile("coverage_manifest.json")
+	if err != nil {
+		return CoverageInventory{}, fmt.Errorf("read coverage manifest: %w", err)
+	}
+
+	var inventory CoverageInventory
+	if err := json.Unmarshal(raw, &inventory); err != nil {
+		return CoverageInventory{}, fmt.Errorf("decode coverage manifest: %w", err)
+	}
+	if err := inventory.Validate(); err != nil {
+		return CoverageInventory{}, err
+	}
+	return inventory, nil
+}
+
+func (i CoverageInventory) ByDomain() map[string]CoverageRow {
+	rows := make(map[string]CoverageRow, len(i.Rows))
+	for _, row := range i.Rows {
+		rows[row.Domain] = row
+	}
+	return rows
+}
+
+func (i CoverageInventory) Validate() error {
+	if i.UpstreamTag == "" {
+		return fmt.Errorf("coverage inventory missing upstream tag")
+	}
+
+	seen := make(map[string]struct{}, len(i.Rows))
+	for _, row := range i.Rows {
+		if row.Domain == "" {
+			return fmt.Errorf("coverage inventory row missing domain")
+		}
+		if _, ok := seen[row.Domain]; ok {
+			return fmt.Errorf("coverage inventory has duplicate domain %q", row.Domain)
+		}
+		seen[row.Domain] = struct{}{}
+
+		if !slices.Contains(validCoverageStatuses, row.Status) {
+			return fmt.Errorf("%s has unsupported status %q", row.Domain, row.Status)
+		}
+		switch row.Status {
+		case CoverageStatusVectorBacked:
+			if row.Vector == "" {
+				return fmt.Errorf("%s is vector-backed without vector", row.Domain)
+			}
+			if row.Reason != "" {
+				return fmt.Errorf("%s is vector-backed with deferred reason", row.Domain)
+			}
+		case CoverageStatusStructural:
+			if row.Reason == "" {
+				return fmt.Errorf("%s is structural without reason", row.Domain)
+			}
+		case CoverageStatusDeferred:
+			if row.Reason == "" {
+				return fmt.Errorf("%s is deferred without reason", row.Domain)
+			}
+			if row.NextUpstreamInput == "" {
+				return fmt.Errorf("%s is deferred without next upstream input", row.Domain)
+			}
+			if row.Vector != "" {
+				return fmt.Errorf("%s is deferred with vector %q", row.Domain, row.Vector)
+			}
+		}
+	}
+	return nil
+}
+
+var validCoverageStatuses = []CoverageStatus{
+	CoverageStatusVectorBacked,
+	CoverageStatusStructural,
+	CoverageStatusDeferred,
+}

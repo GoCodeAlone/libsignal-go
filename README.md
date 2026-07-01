@@ -91,6 +91,11 @@ The separate [`compat-drift`](.github/workflows/compat-drift.yml) workflow keeps
 watch on upstream `main` and files an informational issue when unreleased drift
 appears. It does not modify the pin and does not gate pull requests.
 
+`compat.ProofInventory()` exposes the machine-readable proof/backup coverage
+manifest used by the monitor. Rows are intentionally conservative:
+`vector-backed` rows cite committed upstream fixtures, while `deferred` rows
+must name the missing upstream input before any parity claim can be made.
+
 ## Scope matrix
 
 The per-domain status of the client protocol surface. **Implemented** domains
@@ -117,8 +122,8 @@ deliberate non-goals for this module.
 | X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.4 cannot initiate v3 |
 | ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
 | zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
-| username hash/proof, key transparency, SVR/svrb | 🚧 deferred | — | tracked in `compat/coverage_manifest.json`; account-key/SVR-key derivation remains vector-backed here, proof-system semantics move to encrypted-spaces-go |
-| device transfer, media, message backup, net | ⛔ excluded | — | non-goal |
+| username hash/proof, key transparency, SVR/svrb | 🚧 deferred | — | tracked in `compat.ProofInventory()` / `compat/coverage_manifest.json`; account-key/SVR-key derivation remains vector-backed here, proof-system semantics move to encrypted-spaces-go |
+| backup manifest, message backup, device transfer, media, net | 🚧 deferred / ⛔ excluded | — | backup/message-backup rows are tracked in `compat.ProofInventory()` with required upstream inputs; the remaining app/service surfaces are non-goals |
 | `incremental_mac`, HPKE, `session_cipher_legacy` | ⛔ excluded | — | upstream test-only |
 | Language bridges (Java / Swift / Node) | ⛔ excluded | — | deleted from this fork, not ported |
 
