@@ -52,7 +52,7 @@ See `rust-harness/README.md` for full harness/toolchain details.
 # from compat/
 cargo build --release --manifest-path rust-harness/Cargo.toml
 BIN=rust-harness/target/release/rust-harness
-for d in curve kem-decaps hkdf messages fingerprint sessions groups username-links; do
+for d in curve kem-decaps hkdf messages fingerprint sessions groups sealedsender username-links; do
   "$BIN" gen-vectors "$d" > "vectors/$d.json"
 done
 ```
@@ -62,6 +62,12 @@ header), so regenerating without changing the harness produces byte-identical
 files.
 
 ## What `vectors_test.go` asserts
+
+`coverage_manifest.json` records which Signal Workflow-adjacent domains are
+vector-backed in this module and which are explicitly deferred to proof-system
+work. The manifest is tested so automation cannot forget to regenerate
+harness-backed domains such as `username-links` when the upstream pin changes,
+and so non-harness vectors such as `account-keys` stay explicitly tracked.
 
 - **curve** — Go verifies each upstream signature; Go re-signs with the recorded
   nonce and matches the upstream signature bytes; Go ECDH equals the upstream

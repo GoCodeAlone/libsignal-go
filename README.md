@@ -117,7 +117,7 @@ deliberate non-goals for this module.
 | X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.4 cannot initiate v3 |
 | ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
 | zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
-| username hash/proof, key transparency, SVR/svrb | ⛔ excluded | — | non-goal until the zk/poksho surface is ported |
+| username hash/proof, key transparency, SVR/svrb | 🚧 deferred | — | tracked in `compat/coverage_manifest.json`; account-key/SVR-key derivation remains vector-backed here, proof-system semantics move to encrypted-spaces-go |
 | device transfer, media, message backup, net | ⛔ excluded | — | non-goal |
 | `incremental_mac`, HPKE, `session_cipher_legacy` | ⛔ excluded | — | upstream test-only |
 | Language bridges (Java / Swift / Node) | ⛔ excluded | — | deleted from this fork, not ported |
