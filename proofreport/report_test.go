@@ -1,6 +1,7 @@
 package proofreport
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -65,6 +66,25 @@ func TestReportStructuralRowsCannotClaimParity(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Validate accepted structural parity claim")
+	}
+}
+
+func TestReportVectorBackedRowsDiagnoseMissingFixturePath(t *testing.T) {
+	err := Validate(CompatibilityReport{
+		UpstreamTag: "v0.96.4",
+		Rows: []Row{{
+			Domain:        "missing-fixture",
+			Status:        StatusVectorBacked,
+			UpstreamTag:   "v0.96.4",
+			FixtureSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			ParityClaim:   true,
+		}},
+	})
+	if err == nil {
+		t.Fatal("Validate accepted vector-backed row without fixture path")
+	}
+	if !strings.Contains(err.Error(), "fixture path") {
+		t.Fatalf("error = %q, want fixture path diagnostic", err)
 	}
 }
 

@@ -112,9 +112,18 @@ func (i CoverageInventory) Validate() error {
 			if row.Reason != "" {
 				return fmt.Errorf("%s is vector-backed with deferred reason", row.Domain)
 			}
+			if row.NextUpstreamInput != "" {
+				return fmt.Errorf("%s is vector-backed with deferred next upstream input", row.Domain)
+			}
 		case CoverageStatusStructural:
 			if row.Reason == "" {
 				return fmt.Errorf("%s is structural without reason", row.Domain)
+			}
+			if row.Vector != "" || row.VectorSHA256 != "" {
+				return fmt.Errorf("%s is structural with vector data", row.Domain)
+			}
+			if row.NextUpstreamInput != "" {
+				return fmt.Errorf("%s is structural with deferred next upstream input", row.Domain)
 			}
 		case CoverageStatusDeferred:
 			if row.Reason == "" {

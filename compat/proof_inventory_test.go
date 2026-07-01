@@ -63,6 +63,53 @@ func TestProofInventoryDeferredRowsExplainNextUpstreamInput(t *testing.T) {
 	}
 }
 
+func TestCoverageInventoryRejectsAmbiguousRows(t *testing.T) {
+	tests := []struct {
+		name string
+		row  CoverageRow
+	}{
+		{
+			name: "vector-backed row with deferred next input",
+			row: CoverageRow{
+				Domain:            "mixed-vector",
+				Status:            CoverageStatusVectorBacked,
+				Vector:            "vectors/account-keys.json",
+				VectorSHA256:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				NextUpstreamInput: "should be empty",
+			},
+		},
+		{
+			name: "structural row with vector",
+			row: CoverageRow{
+				Domain: "mixed-structural-vector",
+				Status: CoverageStatusStructural,
+				Vector: "vectors/account-keys.json",
+				Reason: "shape only",
+			},
+		},
+		{
+			name: "structural row with deferred next input",
+			row: CoverageRow{
+				Domain:            "mixed-structural-next",
+				Status:            CoverageStatusStructural,
+				Reason:            "shape only",
+				NextUpstreamInput: "should be empty",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CoverageInventory{
+				UpstreamTag: "v0.96.4",
+				Rows:        []CoverageRow{tt.row},
+			}.Validate()
+			if err == nil {
+				t.Fatal("Validate accepted ambiguous row")
+			}
+		})
+	}
+}
+
 func assertProofRow(t *testing.T, rows map[string]CoverageRow, domain string, status CoverageStatus, vector string, wantReason bool) {
 	t.Helper()
 	row, ok := rows[domain]

@@ -103,7 +103,10 @@ func Validate(r CompatibilityReport) error {
 			if row.UpstreamTag == "" {
 				return fmt.Errorf("%s is vector-backed without upstream tag", row.Domain)
 			}
-			if row.Fixture == "" || len(row.FixtureSHA256) != 64 {
+			if row.Fixture == "" {
+				return fmt.Errorf("%s is vector-backed without fixture path", row.Domain)
+			}
+			if len(row.FixtureSHA256) != 64 {
 				return fmt.Errorf("%s is vector-backed without fixture digest", row.Domain)
 			}
 			if !row.ParityClaim {
