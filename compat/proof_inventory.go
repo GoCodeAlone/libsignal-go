@@ -12,19 +12,23 @@ import (
 //go:embed coverage_manifest.json vectors/account-keys.json vectors/username-links.json
 var coverageManifestFS embed.FS
 
+// CoverageStatus classifies how strongly a proof or backup domain is covered.
 type CoverageStatus string
 
+// Coverage status values used by the proof inventory.
 const (
 	CoverageStatusVectorBacked CoverageStatus = "vector-backed"
 	CoverageStatusStructural   CoverageStatus = "structural"
 	CoverageStatusDeferred     CoverageStatus = "deferred"
 )
 
+// CoverageInventory is the machine-readable upstream coverage manifest.
 type CoverageInventory struct {
 	UpstreamTag string        `json:"upstream_tag"`
 	Rows        []CoverageRow `json:"domains"`
 }
 
+// CoverageRow records one proof, backup, or protocol-adjacent coverage domain.
 type CoverageRow struct {
 	Domain            string         `json:"name"`
 	Status            CoverageStatus `json:"status"`
@@ -36,6 +40,7 @@ type CoverageRow struct {
 	Notes             string         `json:"notes,omitempty"`
 }
 
+// ProofInventory returns the embedded coverage manifest with vector digests.
 func ProofInventory() (CoverageInventory, error) {
 	raw, err := coverageManifestFS.ReadFile("coverage_manifest.json")
 	if err != nil {
@@ -71,6 +76,7 @@ func (i *CoverageInventory) hydrateVectorDigests() error {
 	return nil
 }
 
+// ByDomain indexes coverage rows by domain name.
 func (i CoverageInventory) ByDomain() map[string]CoverageRow {
 	rows := make(map[string]CoverageRow, len(i.Rows))
 	for _, row := range i.Rows {
@@ -79,6 +85,7 @@ func (i CoverageInventory) ByDomain() map[string]CoverageRow {
 	return rows
 }
 
+// Validate checks that coverage rows do not overclaim parity.
 func (i CoverageInventory) Validate() error {
 	if i.UpstreamTag == "" {
 		return fmt.Errorf("coverage inventory missing upstream tag")

@@ -1,3 +1,5 @@
+// Package proofreport exposes conservative Signal proof and backup coverage
+// metadata for downstream readiness checks.
 package proofreport
 
 import (
@@ -7,19 +9,23 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/compat"
 )
 
+// Status classifies report rows by their upstream evidence strength.
 type Status = compat.CoverageStatus
 
+// Report status values.
 const (
 	StatusVectorBacked = compat.CoverageStatusVectorBacked
 	StatusStructural   = compat.CoverageStatusStructural
 	StatusDeferred     = compat.CoverageStatusDeferred
 )
 
+// CompatibilityReport summarizes coverage against one upstream libsignal tag.
 type CompatibilityReport struct {
 	UpstreamTag string `json:"upstream_tag"`
 	Rows        []Row  `json:"rows"`
 }
 
+// Row describes one proof, backup, or protocol-adjacent compatibility domain.
 type Row struct {
 	Domain            string   `json:"domain"`
 	Status            Status   `json:"status"`
@@ -33,6 +39,7 @@ type Row struct {
 	Notes             string   `json:"notes,omitempty"`
 }
 
+// Report returns the current proof and backup coverage report.
 func Report() (CompatibilityReport, error) {
 	inventory, err := compat.ProofInventory()
 	if err != nil {
@@ -67,6 +74,7 @@ func Report() (CompatibilityReport, error) {
 	return report, nil
 }
 
+// ByDomain indexes report rows by domain name.
 func (r CompatibilityReport) ByDomain() map[string]Row {
 	rows := make(map[string]Row, len(r.Rows))
 	for _, row := range r.Rows {
@@ -75,6 +83,7 @@ func (r CompatibilityReport) ByDomain() map[string]Row {
 	return rows
 }
 
+// Validate checks that report rows do not overclaim upstream parity.
 func Validate(r CompatibilityReport) error {
 	if r.UpstreamTag == "" {
 		return fmt.Errorf("proof report missing upstream tag")
