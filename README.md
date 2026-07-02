@@ -105,6 +105,9 @@ for domains Workflow needs to track across releases: account keys, usernames,
 message backup, SVR2, and SVRB. Vector-backed rows cite committed fixture
 digests; structural-only rows explicitly name the missing package or fixture
 boundary and must not claim official Signal app interoperability.
+The `messagebackup`, `svr`, and `svrb` packages expose narrower public reports
+for downstream readiness gates; they include stable descriptor digests and no
+live-service behavior.
 
 ## Scope matrix
 
@@ -192,6 +195,8 @@ Runnable examples live alongside the packages they document (Go renders them in
   key derivations.
 - [`proofreport`](proofreport/) — conservative proof/backup coverage report for
   Workflow integrations.
+- [`messagebackup`](messagebackup/), [`svr`](svr/), and [`svrb`](svrb/) —
+  public report packages for backup/SVR readiness metadata.
 - [`internal/upstream`](internal/upstream/) — machine-readable upstream monorepo
   domain manifest for release monitoring and Workflow readiness checks.
 

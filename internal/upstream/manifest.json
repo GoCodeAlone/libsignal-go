@@ -26,7 +26,7 @@
     {
       "name": "message-backup",
       "upstream_path": "rust/message-backup",
-      "report_path": "proofreport",
+      "report_path": "messagebackup",
       "coverage_status": "structural-only",
       "structural_only_reason": "Only backup key and backup ID derivations are implemented in this protocol-core module. Upstream message-backup manifest serialization, validation, and app storage schemas need a separate package boundary before parity can be claimed.",
       "official_app_interop_claim": false,
@@ -35,7 +35,7 @@
     {
       "name": "svr2",
       "upstream_path": "rust/svr2",
-      "report_path": "proofreport",
+      "report_path": "svr",
       "coverage_status": "structural-only",
       "structural_only_reason": "SVR key derivation is vector-backed through accountkeys, but SVR2 service proof semantics require carried zkcredential/poksho verification surfaces before parity can be claimed.",
       "official_app_interop_claim": false,
@@ -44,7 +44,7 @@
     {
       "name": "svrb",
       "upstream_path": "rust/svrb",
-      "report_path": "proofreport",
+      "report_path": "svrb",
       "coverage_status": "structural-only",
       "structural_only_reason": "SVRB service proof and backup-recovery semantics require upstream proof-system and service-boundary packages that are not part of this protocol-core module.",
       "official_app_interop_claim": false,
