@@ -100,6 +100,11 @@ must name the missing upstream input before any parity claim can be made.
 `proofreport.Report()` wraps the same inventory with fixture SHA-256 digests and
 explicit parity-claim booleans for downstream Workflow and Encrypted Spaces
 readiness checks.
+`internal/upstream/manifest.json` adds the upstream monorepo source-path layer
+for domains Workflow needs to track across releases: account keys, usernames,
+message backup, SVR2, and SVRB. Vector-backed rows cite committed fixture
+digests; structural-only rows explicitly name the missing package or fixture
+boundary and must not claim official Signal app interoperability.
 
 ## Scope matrix
 
@@ -187,6 +192,8 @@ Runnable examples live alongside the packages they document (Go renders them in
   key derivations.
 - [`proofreport`](proofreport/) — conservative proof/backup coverage report for
   Workflow integrations.
+- [`internal/upstream`](internal/upstream/) — machine-readable upstream monorepo
+  domain manifest for release monitoring and Workflow readiness checks.
 
 Browse the full API with:
 
