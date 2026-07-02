@@ -317,12 +317,16 @@ func usernameHashScalars(nickname string, discriminator uint64) ([]*ristretto255
 
 func usernameSHAScalar(nickname string, discriminator uint64) *ristretto255.Scalar {
 	h := sha512.New()
-	h.Write([]byte(nickname))
-	h.Write([]byte{0x00})
+	_, _ = h.Write([]byte(nickname))
+	_, _ = h.Write([]byte{0x00})
 	var be [8]byte
 	binary.BigEndian.PutUint64(be[:], discriminator)
-	h.Write(be[:])
-	return new(ristretto255.Scalar).FromUniformBytes(h.Sum(nil))
+	_, _ = h.Write(be[:])
+	scalar, err := new(ristretto255.Scalar).SetUniformBytes(h.Sum(nil))
+	if err != nil {
+		panic("sha512 output must be 64 bytes for ristretto255 scalar")
+	}
+	return scalar
 }
 
 func usernameNicknameScalar(nickname string) (*ristretto255.Scalar, error) {

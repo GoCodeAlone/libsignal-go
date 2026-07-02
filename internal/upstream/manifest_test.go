@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -53,7 +54,11 @@ func TestManifestVectorBackedRowsMatchCommittedFiles(t *testing.T) {
 		if row.ChecksumSHA256 == "" {
 			t.Fatalf("%s is vector-backed without checksum", row.Name)
 		}
-		raw, err := os.ReadFile(filepath.Join(root, row.ChecksumPath))
+		checksumPath := filepath.Clean(row.ChecksumPath)
+		if filepath.IsAbs(checksumPath) || checksumPath == ".." || strings.HasPrefix(checksumPath, ".."+string(os.PathSeparator)) {
+			t.Fatalf("%s checksum path escapes repository: %q", row.Name, row.ChecksumPath)
+		}
+		raw, err := os.ReadFile(filepath.Join(root, checksumPath)) // #nosec G304 -- manifest checksum paths are validated above.
 		if err != nil {
 			t.Fatalf("read checksum path for %s: %v", row.Name, err)
 		}
