@@ -304,6 +304,20 @@ func TestInteropUsernameLink(t *testing.T) {
 	if got != username {
 		t.Fatalf("Go decrypted username = %q, want %q", got, username)
 	}
+
+	goHash, err := usernames.ReserveUsernameHash(username)
+	if err != nil {
+		t.Fatalf("ReserveUsernameHash: %v", err)
+	}
+	var hashRes struct {
+		UsernameHash string `json:"username_hash"`
+	}
+	h.ok("username.hash", map[string]any{
+		"username": username,
+	}, &hashRes)
+	if hashRes.UsernameHash != goHash.String() {
+		t.Fatalf("Rust username hash %s != Go %s", hashRes.UsernameHash, goHash)
+	}
 }
 
 // TestInteropCurveSignVerify checks XEdDSA agreement in both directions:

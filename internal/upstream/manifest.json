@@ -19,9 +19,9 @@
       "report_path": "compat/coverage_manifest.json",
       "coverage_status": "vector-backed",
       "checksum_path": "compat/vectors/username-links.json",
-      "checksum_sha256": "014dc3e47bfbb6d8acbffdb21ea5d8f54be3554d4fee59e61da1b58218e296aa",
+      "checksum_sha256": "ed50f8ae931ff050d28158e8e39d6d51b2a417afd1f1b6293ecab7592cb28f19",
       "official_app_interop_claim": false,
-      "notes": "Username validation and username-link encryption are vector-backed; username hash/proof remains tracked as a deferred proof-system row."
+      "notes": "Username validation, username-link encryption, and reservation hashes are vector-backed; username proof generation remains tracked as a deferred proof-system row."
     },
     {
       "name": "message-backup",

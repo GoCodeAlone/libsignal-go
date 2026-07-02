@@ -111,6 +111,7 @@ func TestUsernameLinkVectors(t *testing.T) {
 			Entropy           string `json:"entropy"`
 			IV                string `json:"iv"`
 			EncryptedUsername string `json:"encrypted_username"`
+			UsernameHash      string `json:"username_hash"`
 			Decrypted         string `json:"decrypted"`
 		} `json:"cases"`
 	}
@@ -138,6 +139,13 @@ func TestUsernameLinkVectors(t *testing.T) {
 		}
 		if got != c.Decrypted {
 			t.Fatalf("case %d: decrypted username = %q, want %q", i, got, c.Decrypted)
+		}
+		hash, err := usernames.ReserveUsernameHash(c.Username)
+		if err != nil {
+			t.Fatalf("case %d: ReserveUsernameHash: %v", i, err)
+		}
+		if hash.String() != c.UsernameHash {
+			t.Fatalf("case %d: username hash = %s, want %s", i, hash, c.UsernameHash)
 		}
 	}
 }

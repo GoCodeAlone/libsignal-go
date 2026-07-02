@@ -131,7 +131,7 @@ deliberate non-goals for this module.
 | Fingerprints (numeric + scannable) | ✅ implemented | [`fingerprint`](fingerprint/) | display + scannable byte-equal vs upstream |
 | Sparse Post-Quantum Ratchet (SPQR) | ✅ implemented | [`spqr`](spqr/), [`internal/mlkem768incr`](internal/mlkem768incr/), [`internal/spqr/chunked`](internal/spqr/chunked/) | incremental ML-KEM-768 + GF(2^16) chunked transport + state machine, mixed into the session message keys; SPQR-negotiated interop both roles at v0.96.4 |
 | Account keys (entropy pool, SVR key, PIN hash, backup key derivations) | ✅ implemented | [`accountkeys`](accountkeys/) | v0.96.4 known vectors for account entropy, backup ID, PIN hash, and local PIN PHC |
-| Username validation, candidates, and username links | ✅ implemented | [`usernames`](usernames/) | v0.96.4 username-link vectors; hash/proof deferred to zk/poksho phase |
+| Username validation, candidates, username links, and reservation hash | ✅ implemented | [`usernames`](usernames/) | v0.96.4 username-link and reserve-hash vectors; proof generation deferred to zk/poksho phase |
 | X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.4 cannot initiate v3 |
 | ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
 | zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
@@ -193,6 +193,8 @@ Runnable examples live alongside the packages they document (Go renders them in
   sender v1 message with certificate-chain validation.
 - [`accountkeys`](accountkeys/) — account entropy, SVR key, PIN hash, and backup
   key derivations.
+- [`usernames`](usernames/) — username validation, candidate generation,
+  username links, and vector-backed reservation hashes.
 - [`proofreport`](proofreport/) — conservative proof/backup coverage report for
   Workflow integrations.
 - [`messagebackup`](messagebackup/), [`svr`](svr/), and [`svrb`](svrb/) —

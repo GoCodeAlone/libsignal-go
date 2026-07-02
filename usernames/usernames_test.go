@@ -138,6 +138,53 @@ func TestUsernameLinkFailures(t *testing.T) {
 	}
 }
 
+func TestReserveUsernameHashKnownVectors(t *testing.T) {
+	cases := []struct {
+		username string
+		want     string
+	}{
+		{"He110.01", "40bb2ef5ee0623030702e2fe4968b8ecd7362f429dd9435ae4c4616458394e77"},
+		{"usr.999999999", "ee73aba64f73a01d76f60dd228806c6b4941a0db1381d3e85fba4c87160d9215"},
+		{"_identifier.42", "58d2b1c0d69a791cc69a31388291c2ee051ad0bbf41a1b292f095844101f9865"},
+		{"LOUD.700", "4ee6243df79ec22d8da80aa8b4a834ed56d911a165490fa90199135e7888314e"},
+		{"test_username.42", "9cdd889c3ae89a345c5ebfce990212485ec43974a67a26ee30bc4efb67049c7a"},
+	}
+	for _, tc := range cases {
+		got, err := ReserveUsernameHash(tc.username)
+		if err != nil {
+			t.Fatalf("ReserveUsernameHash(%q): %v", tc.username, err)
+		}
+		if got.String() != tc.want {
+			t.Fatalf("ReserveUsernameHash(%q) = %s, want %s", tc.username, got, tc.want)
+		}
+		if len(got.Bytes()) != 32 {
+			t.Fatalf("ReserveUsernameHash(%q) returned %d bytes, want 32", tc.username, len(got.Bytes()))
+		}
+	}
+}
+
+func TestReserveUsernameHashIsCaseInsensitive(t *testing.T) {
+	upper, err := ReserveUsernameHash("LOUD.700")
+	if err != nil {
+		t.Fatalf("ReserveUsernameHash upper: %v", err)
+	}
+	lower, err := ReserveUsernameHash("loud.700")
+	if err != nil {
+		t.Fatalf("ReserveUsernameHash lower: %v", err)
+	}
+	if upper != lower {
+		t.Fatalf("case-insensitive hash mismatch: %s != %s", upper, lower)
+	}
+}
+
+func TestReserveUsernameHashRejectsInvalidUsername(t *testing.T) {
+	for _, username := range []string{"no-discriminator", "0start.42", "bad space.42", "valid.01.extra"} {
+		if _, err := ReserveUsernameHash(username); err == nil {
+			t.Fatalf("ReserveUsernameHash accepted invalid username %q", username)
+		}
+	}
+}
+
 func TestProofReportTracksUsernameCoverage(t *testing.T) {
 	report, err := proofreport.Report()
 	if err != nil {
@@ -154,6 +201,17 @@ func TestProofReportTracksUsernameCoverage(t *testing.T) {
 	}
 	if !slices.Contains(link.Packages, "usernames") {
 		t.Fatalf("username-links packages = %v, want usernames", link.Packages)
+	}
+
+	reserveHash := rows["username-reserve-hash"]
+	if reserveHash.Status != proofreport.StatusVectorBacked {
+		t.Fatalf("username-reserve-hash status = %q, want %q", reserveHash.Status, proofreport.StatusVectorBacked)
+	}
+	if reserveHash.Fixture != "vectors/username-links.json" || reserveHash.FixtureSHA256 == "" {
+		t.Fatalf("reserve hash fixture = %q digest=%q, want username-link fixture and digest", reserveHash.Fixture, reserveHash.FixtureSHA256)
+	}
+	if reserveHash.ParityClaim != true {
+		t.Fatal("username-reserve-hash should claim vector-backed parity")
 	}
 
 	hashProof := rows["username-hash-proof"]

@@ -15,6 +15,7 @@ func TestProofInventoryTracksSignalProofAndBackupDomains(t *testing.T) {
 
 	rows := inventory.ByDomain()
 	assertProofRow(t, rows, "username-links", CoverageStatusVectorBacked, "vectors/username-links.json", false)
+	assertProofRow(t, rows, "username-reserve-hash", CoverageStatusVectorBacked, "vectors/username-links.json", false)
 	assertProofRow(t, rows, "username-hash-proof", CoverageStatusDeferred, "", true)
 	assertProofRow(t, rows, "account-backup-derivations", CoverageStatusVectorBacked, "vectors/account-keys.json", false)
 	assertProofRow(t, rows, "backup-manifest", CoverageStatusDeferred, "", true)

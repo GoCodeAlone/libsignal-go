@@ -17,6 +17,7 @@ func TestReportIncludesProofInventoryRows(t *testing.T) {
 	rows := report.ByDomain()
 	for _, domain := range []string{
 		"username-links",
+		"username-reserve-hash",
 		"username-hash-proof",
 		"account-backup-derivations",
 		"backup-manifest",

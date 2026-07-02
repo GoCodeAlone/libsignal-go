@@ -37,6 +37,13 @@
       "notes": "Username-link entropy, IV, ciphertext, HMAC, and upstream decrypted username."
     },
     {
+      "name": "username-reserve-hash",
+      "status": "vector-backed",
+      "vector": "vectors/username-links.json",
+      "packages": ["usernames"],
+      "notes": "Username reservation hash vectors generated from upstream rust/usernames Username::hash; proof generation remains deferred."
+    },
+    {
       "name": "username-hash-proof",
       "status": "deferred",
       "reason": "Requires zkgroup/poksho proof-system surfaces not carried by libsignal-go; tracked in encrypted-spaces-go proof parity work.",

@@ -71,8 +71,8 @@ Domains:
 - `fingerprint` — display + scannable fingerprints (v1 and v2) for a fixed
   identity-key pair.
 - `username-links` — username-link entropy, deterministic IV, encrypted username
-  bytes (`IV || ciphertext || HMAC`), and upstream-decrypted username from
-  `rust/usernames`.
+  bytes (`IV || ciphertext || HMAC`), username reservation hash, and
+  upstream-decrypted username from `rust/usernames`.
 - `mlkem-incremental` — byte-exact KATs for libcrux 0.0.8's incremental
   ML-KEM-768 (the KEM SPQR uses): the keygen split (`pk1`/`pk2`/`dk`), two-phase
   encapsulation (`ct1`, `encaps_state`, `ct2`, `shared_secret`), and

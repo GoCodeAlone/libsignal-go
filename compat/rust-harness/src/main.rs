@@ -1062,8 +1062,8 @@ fn gen_mlkem_incremental() -> Vec<Value> {
 
 /// username-links domain: deterministic username-link encryption vectors from
 /// upstream `rust/usernames`. Each case records the supplied entropy and IV, the
-/// encrypted username bytes (IV || ciphertext || HMAC), and the decrypted
-/// username recovered by upstream.
+/// encrypted username bytes (IV || ciphertext || HMAC), the reserve hash, and
+/// the decrypted username recovered by upstream.
 fn gen_username_links() -> Vec<Value> {
     let mut rng = seeded_rng();
     let names = [
@@ -1088,11 +1088,15 @@ fn gen_username_links() -> Vec<Value> {
         .expect("username link create");
         let decrypted = usernames::decrypt_username(&actual_entropy, &encrypted)
             .expect("username link decrypt");
+        let username_hash = usernames::Username::new(username)
+            .expect("username parse")
+            .hash();
         cases.push(json!({
             "username": username,
             "entropy": hex(&actual_entropy),
             "iv": hex(&iv),
             "encrypted_username": hex(&encrypted),
+            "username_hash": hex(&username_hash),
             "decrypted": decrypted,
         }));
     }
@@ -1996,6 +2000,14 @@ fn dispatch(method: &str, params: &Value) -> Result<Value, String> {
             let username = usernames::decrypt_username(&entropy, &encrypted_username)
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "username": username }))
+        }
+
+        "username.hash" => {
+            let username = param_str(params, "username")?;
+            let hash = usernames::Username::new(&username)
+                .map_err(|e| e.to_string())?
+                .hash();
+            Ok(json!({ "username_hash": hex(&hash) }))
         }
 
         // message.parse_sender_key: { serialized: hex } -> { distribution_id, chain_id, iteration }

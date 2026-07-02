@@ -5,56 +5,64 @@
       "encrypted_username": "eb09e811f55c150b68d246e8537ca8e9d30a5aeab5abf597828f2aadfaedb18ed7c1cb0af68df09b33cb04fc2f9e69920fee659cf688ca276770c5c68122ad35e72e511b823e7a31408323525e45143108e5d9e8e6d2786a12cbe1f16f46a2dddfb92afd7ecfb3ac62b34c5b02998bc7",
       "entropy": "9d243db873500bb8f3670889dcf012dad080480f9364054d5900955e7c4e4dfa",
       "iv": "eb09e811f55c150b68d246e8537ca8e9",
-      "username": "test_username.42"
+      "username": "test_username.42",
+      "username_hash": "9cdd889c3ae89a345c5ebfce990212485ec43974a67a26ee30bc4efb67049c7a"
     },
     {
       "decrypted": "He110.01",
       "encrypted_username": "2af392080785bbf6225f6e1b79420a6d65bf0396e83984ee280ffaa61070922780a2ce30bd7e67a65f48a917b8dcf0a8c1c0bb0d335375b80df0a894282ae830daf406c37659a2348f786e7d020d36c03c4e58ed3ed11d7e2e722f5e11d0ae31ffef9852aa788f533d7e1774d8ffe5dc",
       "entropy": "efd6c2caae97f6151dc7006e140785c85eeb888d393d7e7eba0e61fd58a5c711",
       "iv": "2af392080785bbf6225f6e1b79420a6d",
-      "username": "He110.01"
+      "username": "He110.01",
+      "username_hash": "40bb2ef5ee0623030702e2fe4968b8ecd7362f429dd9435ae4c4616458394e77"
     },
     {
       "decrypted": "usr.999999999",
       "encrypted_username": "b92a0fe988f62ab6f34ab9aea189832f6fe659e9c28e66db61471a7b9f95bd72c3f588cd42ecfeacfa4a01137fc2419977a61509abf2dcf8684741b7afee727ae63447dfc64dba4f8cb22dd6e87baca1e732bafae6e36bdebbacd75ee06a2d7a3f4b9b375fab1345aebd04ebae37e321",
       "entropy": "62da0cf208648cc21d2d4bc6ca5a327a9c9529040015bb8ba1041cedaa67abf4",
       "iv": "b92a0fe988f62ab6f34ab9aea189832f",
-      "username": "usr.999999999"
+      "username": "usr.999999999",
+      "username_hash": "ee73aba64f73a01d76f60dd228806c6b4941a0db1381d3e85fba4c87160d9215"
     },
     {
       "decrypted": "_identifier.42",
       "encrypted_username": "f11a4bf132fa39ca8336d688730209ab7910a80d74bc951e9d0cbb35881f2aca56080d075d421323bdc0778062a2a530110ac6f496d24157ae327df5457dcfa1bea7b275b1516c740b05bb3d86e60189dc836ed7502c4872c4de28302e126265450219bd66bb4c3a97162841b7df1a05",
       "entropy": "51193a9b7ca3e1e4a88bea81301c56f4bb47a07348c73fbab933eec3fe9cfc63",
       "iv": "f11a4bf132fa39ca8336d688730209ab",
-      "username": "_identifier.42"
+      "username": "_identifier.42",
+      "username_hash": "58d2b1c0d69a791cc69a31388291c2ee051ad0bbf41a1b292f095844101f9865"
     },
     {
       "decrypted": "LOUD.700",
       "encrypted_username": "871d0fd37ae8961b7b925a3593d090b8c8ca1f54361188f6f153e1994ef4d33a26427b53808016fad3305feba0b3476260b7f259e0e2cef45ee5b5daec4c2d5c78bc8beb24751c1631e4fab6a0d9319f0259e365c7a9c5bb0da45c196e2c9f31e21f03c6f8965edf4e59e5a738987959",
       "entropy": "625c248af2bb281edc19c7232a972a91e8f5357404ec09fbbfb7b0468d8678a1",
       "iv": "871d0fd37ae8961b7b925a3593d090b8",
-      "username": "LOUD.700"
+      "username": "LOUD.700",
+      "username_hash": "4ee6243df79ec22d8da80aa8b4a834ed56d911a165490fa90199135e7888314e"
     },
     {
       "decrypted": "abc.10",
       "encrypted_username": "0bcf3ea1cca4938607b9dbcc99727aa03e6caa5f4569d0d7cc5d55a7e70e9634b0a9c703218628e2853dcc3596ae0c93802f85a5ebb2aafc77378557a2703ac9f644945ad8f2ca7b14c3c68ce36b00479f34c6f1b5d5305ba16c9b322fa7ea83b730a8c9b4aa9501aad8118a17a64e8e",
       "entropy": "4263b11ac70543d53e28ebcc20853fea1db301225ce53cae88695da8563dab52",
       "iv": "0bcf3ea1cca4938607b9dbcc99727aa0",
-      "username": "abc.10"
+      "username": "abc.10",
+      "username_hash": "8cb2063a7715591405ca0bc59f7586664d0fced3b7adacfdb178089e1727396c"
     },
     {
       "decrypted": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.999999999",
       "encrypted_username": "d7dbaf82cafed7aeac31f341d5c7f26d7fffbde624ed7bccdc86c141c18ca2576f174854ba33b24b2afc5f338e7c52e86189b2af0ab704f61fcd1b922f34c3e574766a1677068884ef26c959d5f2c929ad4b40edc7bc768b73bf36c34d2430ffa393dc59baaf3d169775f33fffc3ca32",
       "entropy": "3b95630e92894ef803d3a9ed64054078ddbba7ed1338535fde4d4f19c346b1ab",
       "iv": "d7dbaf82cafed7aeac31f341d5c7f26d",
-      "username": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.999999999"
+      "username": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.999999999",
+      "username_hash": "121493d71d6482cc2378c692b5415808e201e63b35a3ad04a047a86911d9a271"
     },
     {
       "decrypted": "_SiGNA1.12345678",
       "encrypted_username": "b2823c345d6b8ed0a445b39b0fb4df354276c56d8cd5b353b5a88c153648757d803899fa09f1955a6099db1024cde6e98adfcd7fec4203532269ededaa6fcfd3c61807228c4b290242b203159b3b7395784b1ab679ac1c2df0b1749efbb80d27a466014c76c6d5f5670f0261aecfbdd9",
       "entropy": "91d21a54297fbdf961ddb0afb07a456ba1da021bddfebcd6a905ba80d379a5a5",
       "iv": "b2823c345d6b8ed0a445b39b0fb4df35",
-      "username": "_SiGNA1.12345678"
+      "username": "_SiGNA1.12345678",
+      "username_hash": "a4d2fb90528d4bb6abd0f3c4e0cdb1cca9c3fba2b0295bd57a8c40a50e370d65"
     }
   ],
   "domain": "username-links",
