@@ -29,7 +29,7 @@ This directory covers layer 1.
 | `vectors/sessions.json` | PQXDH master secret, **no one-time pre-key** (DH4 absent) | `{seed, cases:[…]}` |
 | `vectors/groups.json` | sender-key cipher golden bytes (SKDM + SKM) | `{seed, cases:[…]}` |
 | `vectors/account-keys.json` | account entropy, SVR key, backup key, backup ID, and PIN hash known values | `{seed, cases:[…], pin_cases:[…]}` |
-| `vectors/username-links.json` | username-link entropy, IV, ciphertext, and decrypted username | `{seed, cases:[…]}` |
+| `vectors/username-links.json` | username-link entropy, IV, ciphertext, reserve hash, and decrypted username | `{seed, cases:[…]}` |
 
 Each curve signing case and each `sender_key_message` case records the 64-byte
 XEdDSA signing `nonce`, so the Go consumer can reproduce the signature
@@ -102,10 +102,11 @@ as `account-keys` stay explicitly tracked.
   committed-vector counterpart to the live no-OPK session interop; the
   `hkdf.json` `pqxdh-secret` sub-domain only covers the with-DH4 path.
 - **username-links** — Go creates the same `IV || ciphertext || HMAC` bytes from
-  the recorded username, entropy, and IV as upstream `rust/usernames`, then
-  decrypts the bytes back to the recorded username. This covers the username-link
-  interoperability surface without claiming support for username hash/proof,
-  which remains tied to the deferred zk/poksho phase.
+  the recorded username, entropy, and IV as upstream `rust/usernames`, computes
+  the same username reservation hash, then decrypts the bytes back to the
+  recorded username. This covers the username-link and reserve-hash surfaces
+  without claiming support for username proofs, which remain tied to the
+  deferred zk/poksho phase.
 
 ## Live interop (`session_interop_test.go`, `interop` build tag)
 

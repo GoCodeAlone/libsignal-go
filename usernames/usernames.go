@@ -1,13 +1,16 @@
 // Package usernames implements Signal username validation and username links.
 //
 // It is a pure-Go port of the non-zk parts of upstream libsignal
-// rust/usernames at v0.96.4. Username hash/proof APIs require the upstream
-// poksho/Ristretto proof stack and are intentionally not exposed here yet.
+// rust/usernames at v0.96.4. Username proof APIs require the upstream
+// poksho proof stack and are intentionally not exposed here yet.
 package usernames
 
 import (
 	"crypto/rand"
+	"crypto/sha512"
 	"crypto/subtle"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/GoCodeAlone/libsignal-go/internal/crypto"
+	"github.com/gtank/ristretto255"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -86,6 +90,23 @@ var discriminatorRanges = [][2]int{
 
 var candidatesPerRange = []int{4, 3, 3, 2, 2, 2, 2, 2}
 
+var usernameHashBasePoints = func() []*ristretto255.Element {
+	raw := [][32]byte{
+		{0x60, 0xb9, 0x93, 0x66, 0x3a, 0x3d, 0xae, 0xcc, 0x4c, 0x85, 0x2f, 0x53, 0x35, 0x47, 0xe3, 0x05, 0x38, 0x8c, 0x2a, 0x50, 0xa5, 0x83, 0x93, 0xea, 0x27, 0x7d, 0xe4, 0xab, 0xf3, 0xde, 0x54, 0x3a},
+		{0xf2, 0xb6, 0xf1, 0xc8, 0x26, 0xfa, 0x36, 0x40, 0x20, 0x6f, 0x3b, 0x58, 0xb2, 0x28, 0x6b, 0xde, 0xfd, 0xfd, 0xa6, 0xa5, 0x4f, 0xf9, 0x02, 0xf2, 0x04, 0xa7, 0x2d, 0xe7, 0x37, 0xd2, 0x61, 0x57},
+		{0x06, 0x06, 0xbd, 0x3a, 0xbf, 0xce, 0x4e, 0x96, 0x17, 0xd4, 0x48, 0xfb, 0x2c, 0xae, 0xb6, 0xcc, 0x02, 0x8e, 0xc9, 0xa2, 0xb6, 0x2b, 0x10, 0xb3, 0xd9, 0xeb, 0x29, 0x48, 0xda, 0x6f, 0x3f, 0x53},
+	}
+	points := make([]*ristretto255.Element, 0, len(raw))
+	for _, encoded := range raw {
+		point, err := new(ristretto255.Element).SetCanonicalBytes(encoded[:])
+		if err != nil {
+			panic(fmt.Sprintf("usernames: invalid upstream hash base point: %v", err))
+		}
+		points = append(points, point)
+	}
+	return points
+}()
+
 // NicknameLimits defines the soft nickname length bounds for validation.
 type NicknameLimits struct {
 	Min int
@@ -125,6 +146,10 @@ type Username struct {
 	discriminator uint64
 }
 
+// UsernameHash is the 32-byte compressed Ristretto username hash used by
+// username reservation APIs.
+type UsernameHash [32]byte
+
 // Parse validates and parses a full username such as "signal.42".
 func Parse(s string) (Username, error) {
 	nickname, discriminator, ok := strings.Cut(s, ".")
@@ -163,6 +188,41 @@ func (u Username) Discriminator() uint64 {
 // String formats the username, preserving nickname casing and two-digit minimum discriminators.
 func (u Username) String() string {
 	return fmt.Sprintf("%s.%02d", u.nickname, u.discriminator)
+}
+
+// ReserveUsernameHash computes Signal's username reservation hash for username.
+//
+// The hash is vector-backed against upstream rust/usernames at v0.96.4. This
+// API does not create or verify username proofs.
+func ReserveUsernameHash(username string) (UsernameHash, error) {
+	parsed, err := Parse(username)
+	if err != nil {
+		return UsernameHash{}, err
+	}
+	return parsed.ReserveHash()
+}
+
+// ReserveHash computes Signal's username reservation hash for a parsed username.
+func (u Username) ReserveHash() (UsernameHash, error) {
+	nickname := strings.ToLower(u.nickname)
+	scalars, err := usernameHashScalars(nickname, u.discriminator)
+	if err != nil {
+		return UsernameHash{}, err
+	}
+	point := new(ristretto255.Element).MultiScalarMult(scalars, usernameHashBasePoints)
+	var out UsernameHash
+	copy(out[:], point.Bytes())
+	return out, nil
+}
+
+// Bytes returns the fixed-width hash bytes.
+func (h UsernameHash) Bytes() [32]byte {
+	return [32]byte(h)
+}
+
+// String returns the lower-case hexadecimal hash.
+func (h UsernameHash) String() string {
+	return hex.EncodeToString(h[:])
 }
 
 // CandidatesFrom returns randomized candidate usernames for nickname.
@@ -241,6 +301,83 @@ func validateNicknameHard(nickname string) error {
 
 func validNicknameByte(b byte) bool {
 	return b == '_' || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
+}
+
+func usernameHashScalars(nickname string, discriminator uint64) ([]*ristretto255.Scalar, error) {
+	nicknameScalar, err := usernameNicknameScalar(nickname)
+	if err != nil {
+		return nil, err
+	}
+	return []*ristretto255.Scalar{
+		usernameSHAScalar(nickname, discriminator),
+		nicknameScalar,
+		scalarFromUint64(discriminator),
+	}, nil
+}
+
+func usernameSHAScalar(nickname string, discriminator uint64) *ristretto255.Scalar {
+	h := sha512.New()
+	_, _ = h.Write([]byte(nickname))
+	_, _ = h.Write([]byte{0x00})
+	var be [8]byte
+	binary.BigEndian.PutUint64(be[:], discriminator)
+	_, _ = h.Write(be[:])
+	scalar, err := new(ristretto255.Scalar).SetUniformBytes(h.Sum(nil))
+	if err != nil {
+		panic("sha512 output must be 64 bytes for ristretto255 scalar")
+	}
+	return scalar
+}
+
+func usernameNicknameScalar(nickname string) (*ristretto255.Scalar, error) {
+	if nickname == "" {
+		return nil, ErrNicknameCannotBeEmpty
+	}
+	if len(nickname) > maxNicknameLength {
+		return nil, ErrNicknameTooLong
+	}
+	bytes := make([]byte, 0, len(nickname))
+	for i := range len(nickname) {
+		value, ok := usernameHashCharToByte(nickname[i])
+		if !ok {
+			return nil, ErrBadNicknameCharacter
+		}
+		bytes = append(bytes, value)
+	}
+
+	thirtySeven := scalarFromUint64(37)
+	twentySeven := scalarFromUint64(27)
+	scalar := new(ristretto255.Scalar)
+	for i := len(bytes) - 1; i >= 1; i-- {
+		scalar.Multiply(scalar, thirtySeven)
+		scalar.Add(scalar, scalarFromUint64(uint64(bytes[i])))
+	}
+	scalar.Multiply(scalar, twentySeven)
+	scalar.Add(scalar, scalarFromUint64(uint64(bytes[0])))
+	return scalar, nil
+}
+
+func usernameHashCharToByte(b byte) (byte, bool) {
+	switch {
+	case b == '_':
+		return 1, true
+	case b >= 'a' && b <= 'z':
+		return b - 'a' + 2, true
+	case b >= '0' && b <= '9':
+		return b - '0' + 28, true
+	default:
+		return 0, false
+	}
+}
+
+func scalarFromUint64(v uint64) *ristretto255.Scalar {
+	var canonical [32]byte
+	binary.LittleEndian.PutUint64(canonical[:], v)
+	scalar, err := new(ristretto255.Scalar).SetCanonicalBytes(canonical[:])
+	if err != nil {
+		panic(fmt.Sprintf("usernames: invalid small scalar: %v", err))
+	}
+	return scalar
 }
 
 func validateDiscriminator(discriminator string) (uint64, error) {

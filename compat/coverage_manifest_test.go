@@ -43,7 +43,7 @@ func TestCoverageManifestTracksSignalWorkflowDomains(t *testing.T) {
 		}{Status: domain.Status, Vector: domain.Vector, Reason: domain.Reason, Packages: domain.Packages}
 	}
 
-	for _, name := range []string{"account-keys", "svr-key", "backup-id", "username-links"} {
+	for _, name := range []string{"account-keys", "svr-key", "backup-id", "username-links", "username-reserve-hash"} {
 		domain, ok := byName[name]
 		if !ok {
 			t.Fatalf("missing coverage domain %q", name)

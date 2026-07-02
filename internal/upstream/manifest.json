@@ -1,0 +1,54 @@
+{
+  "upstream_tag": "v0.96.4",
+  "domains": [
+    {
+      "name": "account-keys",
+      "upstream_path": "rust/account-keys",
+      "local_path": "accountkeys",
+      "report_path": "compat/coverage_manifest.json",
+      "coverage_status": "vector-backed",
+      "checksum_path": "compat/vectors/account-keys.json",
+      "checksum_sha256": "539d5ae3f25007aea4430c84dbb4c93a23af2c9bf5e654a5d5a0569f012e5b3d",
+      "official_app_interop_claim": false,
+      "notes": "Account entropy, SVR key, backup key, backup ID, and PIN access key derivations are locked by committed upstream-compatible vectors."
+    },
+    {
+      "name": "usernames",
+      "upstream_path": "rust/usernames",
+      "local_path": "usernames",
+      "report_path": "compat/coverage_manifest.json",
+      "coverage_status": "vector-backed",
+      "checksum_path": "compat/vectors/username-links.json",
+      "checksum_sha256": "ed50f8ae931ff050d28158e8e39d6d51b2a417afd1f1b6293ecab7592cb28f19",
+      "official_app_interop_claim": false,
+      "notes": "Username validation, username-link encryption, and reservation hashes are vector-backed; username proof generation remains tracked as a deferred proof-system row."
+    },
+    {
+      "name": "message-backup",
+      "upstream_path": "rust/message-backup",
+      "report_path": "messagebackup",
+      "coverage_status": "structural-only",
+      "structural_only_reason": "Only backup key and backup ID derivations are implemented in this protocol-core module. Upstream message-backup manifest serialization, validation, and app storage schemas need a separate package boundary before parity can be claimed.",
+      "official_app_interop_claim": false,
+      "notes": "Tracked for Workflow and Encrypted Spaces readiness without claiming import/export compatibility with Signal app backups."
+    },
+    {
+      "name": "svr2",
+      "upstream_path": "rust/svr2",
+      "report_path": "svr",
+      "coverage_status": "structural-only",
+      "structural_only_reason": "SVR key derivation is vector-backed through accountkeys, but SVR2 service proof semantics require carried zkcredential/poksho verification surfaces before parity can be claimed.",
+      "official_app_interop_claim": false,
+      "notes": "The local evidence is intentionally limited to key derivation and report metadata."
+    },
+    {
+      "name": "svrb",
+      "upstream_path": "rust/svrb",
+      "report_path": "svrb",
+      "coverage_status": "structural-only",
+      "structural_only_reason": "SVRB service proof and backup-recovery semantics require upstream proof-system and service-boundary packages that are not part of this protocol-core module.",
+      "official_app_interop_claim": false,
+      "notes": "Tracked as a future proof-system/vector gap for encrypted-spaces-go and Workflow primitives."
+    }
+  ]
+}
