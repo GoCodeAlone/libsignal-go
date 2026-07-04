@@ -150,6 +150,13 @@ type Username struct {
 // username reservation APIs.
 type UsernameHash [32]byte
 
+// HashCandidate pairs a candidate username with its reservation hash.
+type HashCandidate struct {
+	Username string
+	Hash     UsernameHash
+	HashHex  string
+}
+
 // Parse validates and parses a full username such as "signal.42".
 func Parse(s string) (Username, error) {
 	nickname, discriminator, ok := strings.Cut(s, ".")
@@ -188,6 +195,50 @@ func (u Username) Discriminator() uint64 {
 // String formats the username, preserving nickname casing and two-digit minimum discriminators.
 func (u Username) String() string {
 	return fmt.Sprintf("%s.%02d", u.nickname, u.discriminator)
+}
+
+// Hash computes Signal's username reservation hash for a parsed username.
+//
+// This is an alias for ReserveHash. It does not create or verify username
+// proofs.
+func (u Username) Hash() (UsernameHash, error) {
+	return u.ReserveHash()
+}
+
+// Hash computes Signal's username reservation hash for username.
+//
+// This is an alias for ReserveUsernameHash. It does not create or verify
+// username proofs.
+func Hash(username string) (UsernameHash, error) {
+	return ReserveUsernameHash(username)
+}
+
+// HashHex computes Signal's username reservation hash and returns it as
+// lower-case hex.
+func HashHex(username string) (string, error) {
+	hash, err := Hash(username)
+	if err != nil {
+		return "", err
+	}
+	return hash.String(), nil
+}
+
+// HashFromParts computes Signal's username reservation hash for a
+// nickname/discriminator pair.
+//
+// The discriminator is numeric, so this accepts discriminator 1 as the same
+// value represented by username strings such as "name.01".
+func HashFromParts(nickname string, discriminator uint64) (UsernameHash, error) {
+	if err := validatePrefix(nickname); err != nil {
+		return UsernameHash{}, err
+	}
+	if err := validateNicknameHard(nickname); err != nil {
+		return UsernameHash{}, err
+	}
+	if discriminator == 0 {
+		return UsernameHash{}, ErrDiscriminatorCannotBeZero
+	}
+	return Username{nickname: nickname, discriminator: discriminator}.Hash()
 }
 
 // ReserveUsernameHash computes Signal's username reservation hash for username.
@@ -248,6 +299,34 @@ func CandidatesFromReader(r io.Reader, nickname string, limits NicknameLimits) (
 		for _, v := range values {
 			out = append(out, formatParts(nickname, v))
 		}
+	}
+	return out, nil
+}
+
+// CandidatesWithHashes returns randomized candidate usernames and their
+// reservation hashes for nickname.
+func CandidatesWithHashes(nickname string, limits NicknameLimits) ([]HashCandidate, error) {
+	return CandidatesWithHashesFromReader(rand.Reader, nickname, limits)
+}
+
+// CandidatesWithHashesFromReader returns randomized candidate usernames and
+// their reservation hashes using r.
+func CandidatesWithHashesFromReader(r io.Reader, nickname string, limits NicknameLimits) ([]HashCandidate, error) {
+	candidates, err := CandidatesFromReader(r, nickname, limits)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]HashCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		hash, err := Hash(candidate)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, HashCandidate{
+			Username: candidate,
+			Hash:     hash,
+			HashHex:  hash.String(),
+		})
 	}
 	return out, nil
 }
