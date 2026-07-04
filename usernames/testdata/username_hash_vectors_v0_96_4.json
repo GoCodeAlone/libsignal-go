@@ -1,0 +1,42 @@
+{
+  "source": "signalapp/libsignal rust/usernames Username::hash",
+  "upstream_tag": "v0.96.4",
+  "cases": [
+    {
+      "username": "He110.01",
+      "nickname": "He110",
+      "discriminator": 1,
+      "hash_hex": "40bb2ef5ee0623030702e2fe4968b8ecd7362f429dd9435ae4c4616458394e77"
+    },
+    {
+      "username": "usr.999999999",
+      "nickname": "usr",
+      "discriminator": 999999999,
+      "hash_hex": "ee73aba64f73a01d76f60dd228806c6b4941a0db1381d3e85fba4c87160d9215"
+    },
+    {
+      "username": "_identifier.42",
+      "nickname": "_identifier",
+      "discriminator": 42,
+      "hash_hex": "58d2b1c0d69a791cc69a31388291c2ee051ad0bbf41a1b292f095844101f9865"
+    },
+    {
+      "username": "LOUD.700",
+      "nickname": "LOUD",
+      "discriminator": 700,
+      "hash_hex": "4ee6243df79ec22d8da80aa8b4a834ed56d911a165490fa90199135e7888314e"
+    },
+    {
+      "username": "test_username.42",
+      "nickname": "test_username",
+      "discriminator": 42,
+      "hash_hex": "9cdd889c3ae89a345c5ebfce990212485ec43974a67a26ee30bc4efb67049c7a"
+    },
+    {
+      "username": "_SiGNA1.12345678",
+      "nickname": "_SiGNA1",
+      "discriminator": 12345678,
+      "hash_hex": "a4d2fb90528d4bb6abd0f3c4e0cdb1cca9c3fba2b0295bd57a8c40a50e370d65"
+    }
+  ]
+}

@@ -135,7 +135,7 @@ deliberate non-goals for this module.
 | X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.4 cannot initiate v3 |
 | ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
 | zkgroup / zkcredential / poksho | ⛔ excluded | — | non-goal (server/credential surface) |
-| username hash/proof, key transparency, SVR/svrb | 🚧 deferred | — | tracked in `compat.ProofInventory()` / `compat/coverage_manifest.json`; account-key/SVR-key derivation remains vector-backed here, proof-system semantics move to encrypted-spaces-go |
+| username proof, key transparency, SVR/svrb | 🚧 deferred | — | tracked in `compat.ProofInventory()` / `compat/coverage_manifest.json`; account-key/SVR-key and username reserve-hash derivations remain vector-backed here, proof-system semantics move to encrypted-spaces-go |
 | backup manifest, message backup, device transfer, media, net | 🚧 deferred / ⛔ excluded | — | backup/message-backup rows are tracked in `compat.ProofInventory()` with required upstream inputs; the remaining app/service surfaces are non-goals |
 | `incremental_mac`, HPKE, `session_cipher_legacy` | ⛔ excluded | — | upstream test-only |
 | Language bridges (Java / Swift / Node) | ⛔ excluded | — | deleted from this fork, not ported |
@@ -148,7 +148,7 @@ guarantees beyond the documented Go posture are also out of scope.
 send and receive messages — 1:1 sessions (PQXDH), group messaging, sealed sender
 (v1 + v2), fingerprints, and the SPQR post-quantum ratchet — is ✅ implemented and
 interop-proven against mainline. The excluded rows are deliberate non-goals:
-server / credential / service surfaces (zkgroup, username hash/proof, key
+server / credential / service surfaces (zkgroup, username proof, key
 transparency, SVR), app- and transport-layer features (device transfer, media,
 message backup, net), upstream test-only code (`incremental_mac`, the HPKE test
 harness, `session_cipher_legacy`), language bindings (this module *is* the Go
@@ -194,7 +194,8 @@ Runnable examples live alongside the packages they document (Go renders them in
 - [`accountkeys`](accountkeys/) — account entropy, SVR key, PIN hash, and backup
   key derivations.
 - [`usernames`](usernames/) — username validation, candidate generation,
-  username links, and vector-backed reservation hashes.
+  username links, and vector-backed reservation hashes via `Hash`,
+  `HashFromParts`, `HashHex`, and `CandidatesWithHashes`.
 - [`proofreport`](proofreport/) — conservative proof/backup coverage report for
   Workflow integrations.
 - [`messagebackup`](messagebackup/), [`svr`](svr/), and [`svrb`](svrb/) —
