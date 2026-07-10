@@ -4,7 +4,7 @@ go 1.26
 
 toolchain go1.26.4
 
-require golang.org/x/crypto v0.53.0
+require golang.org/x/crypto v0.54.0
 
 require (
 	filippo.io/edwards25519 v1.2.0
@@ -13,4 +13,4 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
-require golang.org/x/sys v0.46.0 // indirect
+require golang.org/x/sys v0.47.0 // indirect
