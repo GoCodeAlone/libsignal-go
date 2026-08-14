@@ -10,7 +10,7 @@ require (
 	filippo.io/edwards25519 v1.2.0
 	github.com/cloudflare/circl v1.6.4
 	github.com/gtank/ristretto255 v0.2.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 )
 
 require golang.org/x/sys v0.47.0 // indirect
