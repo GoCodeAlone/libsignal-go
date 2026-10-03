@@ -60,13 +60,19 @@ target, so that the interop gate is meaningful and reproducible.
   v0.91.0** protocol surface — the last upstream release before the Sparse
   Post-Quantum Ratchet (SPQR) was made mandatory for new sessions — while SPQR
   was being ported (P5–P9 ran against this pin).
-- **Stage 2 (current):** SPQR is ported (P10) and the compat harness is
-  re-pinned to **libsignal v0.96.4**, the current upstream mainline release. The
-  compatibility claim now covers the full current-mainline protocol surface,
+- **Protocol baseline:** SPQR is ported and the compatibility baseline is
+  **libsignal v0.96.4**. The
+  compatibility claim covers that pinned protocol surface,
   including SPQR-negotiated sessions (v0.96.4 requires SPQR — `min_version: V1`).
   The committed vectors are byte-identical across the re-pin (the protos, the
   `spqr` v1.5.1 pin, and `libcrux-ml-kem` 0.0.8 are unchanged from v0.91.0), and
   the live Rust↔Go interop passes both roles with SPQR on the wire.
+- **Current oracle:** the development-only Rust harness is pinned to the
+  immutable **libsignal v0.104.0** commit, with SPQR 1.6.0 and libcrux 0.0.10.
+  Account-key, PIN master-key, media-key, and MFA metadata vectors are refreshed
+  against this pin. The remaining committed vectors and global proof-report
+  baseline retain their original provenance until the full parity refresh;
+  changing the oracle dependency is not itself a full protocol upgrade.
 
 The rationale, alternatives considered, and the exact pin boundary are recorded
 in [`decisions/0001-spqr-staged-compat.md`](decisions/0001-spqr-staged-compat.md).
@@ -130,7 +136,7 @@ deliberate non-goals for this module.
 | AES-256-GCM-SIV (RFC 8452) | ✅ implemented | [`internal/crypto/gcmsiv`](internal/crypto/gcmsiv/) | nonce-misuse-resistant AEAD for sealed sender v2 |
 | Fingerprints (numeric + scannable) | ✅ implemented | [`fingerprint`](fingerprint/) | display + scannable byte-equal vs upstream |
 | Sparse Post-Quantum Ratchet (SPQR) | ✅ implemented | [`spqr`](spqr/), [`internal/mlkem768incr`](internal/mlkem768incr/), [`internal/spqr/chunked`](internal/spqr/chunked/) | incremental ML-KEM-768 + GF(2^16) chunked transport + state machine, mixed into the session message keys; SPQR-negotiated interop both roles at v0.96.4 |
-| Account keys (entropy pool, SVR key, PIN hash, backup key derivations) | ✅ implemented | [`accountkeys`](accountkeys/) | v0.96.4 known vectors for account entropy, backup ID, PIN hash, and local PIN PHC |
+| Account keys (entropy pool, SVR/PIN, MFA metadata, backup derivations) | ✅ implemented | [`accountkeys`](accountkeys/) | v0.104.0 Rust oracle for SVR derivatives, PIN master-key SIV, fixed 160-byte MFA metadata, and media AES/HMAC splits; legacy entropy/backup/PIN vectors preserved |
 | Username validation, candidates, username links, and reservation hash | ✅ implemented | [`usernames`](usernames/) | v0.96.4 username-link and reserve-hash vectors; proof generation deferred to zk/poksho phase |
 | X3DH v3 session *initiation* | ⛔ excluded | — | v3 *decrypt*/state compat retained; v0.96.4 cannot initiate v3 |
 | ML-KEM-1024 *activation* | ⛔ excluded | — | wire type `0x0A` parsing reserved only |
@@ -191,8 +197,14 @@ Runnable examples live alongside the packages they document (Go renders them in
   distribution and a group-encrypted message.
 - [`sealedsender.Example_sealedSender`](sealedsender/example_test.go) — a sealed
   sender v1 message with certificate-chain validation.
-- [`accountkeys`](accountkeys/) — account entropy, SVR key, PIN hash, and backup
-  key derivations.
+- [`accountkeys`](accountkeys/) — account entropy, redacted `SVRKey`, registration
+  lock/recovery/storage/logging derivatives, authenticated PIN master-key
+  encoding, fixed-size encrypted MFA metadata, and backup/media key derivations.
+  MFA timestamps round down to whole seconds on the wire; names allow at most
+  98 UTF-8 bytes and no NUL. `Encrypt` requires a cryptographic random reader
+  such as `crypto/rand.Reader`. These are local cryptographic operations, not
+  registration, account recovery, or MFA enrollment APIs. Temporary buffers are
+  cleared on a best-effort basis; Go does not guarantee complete key zeroization.
 - [`usernames`](usernames/) — username validation, candidate generation,
   username links, and vector-backed reservation hashes via `Hash`,
   `HashFromParts`, `HashHex`, and `CandidatesWithHashes`.

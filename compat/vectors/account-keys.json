@@ -1,25 +1,225 @@
 {
-  "domain": "account-keys",
-  "seed": "upstream-v0.96.4-account-keys-known-tests",
+  "_note": {
+    "legacy_fields": "seed; cases entropy_pool/svr_key/backup_key/aci/backup_id; pin_cases pin/salt/access_key",
+    "legacy_upstream_tag": "v0.96.4",
+    "oracle": "libsignal-account-keys public APIs; Rust 1.98.1",
+    "seed": "Legacy input identifier retained; MFA cases replay the explicit 16-byte IV through FixedRng.",
+    "upstream_commit": "257105c55a7389ca6b1e85185e2769465e6729f1",
+    "upstream_tag": "v0.104.0",
+    "upstream_tag_object": "03b9987415e6dcb3d83dfde6a16b52d2b59a7b44"
+  },
   "cases": [
     {
-      "entropy_pool": "dtjs858asj6tv0jzsqrsmj0ubp335pisj98e9ssnss8myoc08drhtcktyawvx45l",
-      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1",
-      "backup_key": "ea26a2ddb5dba5ef9e34e1b8dea1f5ae7f255306a6d2d883e542306eaa9fe985",
       "aci": "659aa5f4a28dfcc11ea1b997537a3d95",
-      "backup_id": "8a624fbc45379043f39f1391cddc5fe8"
+      "backup_id": "8a624fbc45379043f39f1391cddc5fe8",
+      "backup_key": "ea26a2ddb5dba5ef9e34e1b8dea1f5ae7f255306a6d2d883e542306eaa9fe985",
+      "entropy_pool": "dtjs858asj6tv0jzsqrsmj0ubp335pisj98e9ssnss8myoc08drhtcktyawvx45l",
+      "media_aes_key": "8a99ce3c134d0a3517ebc770a91569168da76009c4350038614bb790efdbcb65",
+      "media_encryption_key_data": "8a99ce3c134d0a3517ebc770a91569168da76009c4350038614bb790efdbcb651839b63a4e64d77ff0e1e93414e6c66836ed933467bd95386842f8c2a442d53d",
+      "media_hmac_key": "1839b63a4e64d77ff0e1e93414e6c66836ed933467bd95386842f8c2a442d53d",
+      "media_id": "ea233dec048a91eb835bbdb62185e3",
+      "media_name": "task31-account-media",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1",
+      "thumbnail_aes_key": "cdbbf0fbe4ca8eb1667cbb619e2bb38b71d46f9eb8e6bb3f123c6d0458ecdf3d",
+      "thumbnail_hmac_key": "08762e2bebf46a3660e8dc1db1e36661d34183e5ec34ecc3b57e6fa610d65616",
+      "thumbnail_transit_encryption_key_data": "cdbbf0fbe4ca8eb1667cbb619e2bb38b71d46f9eb8e6bb3f123c6d0458ecdf3d08762e2bebf46a3660e8dc1db1e36661d34183e5ec34ecc3b57e6fa610d65616"
+    }
+  ],
+  "domain": "account-keys",
+  "mfa_cases": [
+    {
+      "created_at_millis": 0,
+      "decrypted_created_at_millis": 0,
+      "decrypted_name": "",
+      "encrypted_metadata": "000102030405060708090a0b0c0d0e0f5ff0c34680fb6e1300065eaa1a0399e4cd30f214759b88bf6a4e79fed640014502c10d412fb4881f2611b680b297cfe976673d2c102bc4c91e8dcb6c5190265bb9e2661ec46f7e44b27b3fd78d5cb945576fcae178f25d5ab022fa62f0d54f1587697e06cf8363d3c14f2a85b93dc991fc5e71e6fb5159574afe0e4244a45299059bf66feebd6673489fde592c2ec625",
+      "iv": "000102030405060708090a0b0c0d0e0f",
+      "label": "empty-epoch",
+      "name": "",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "created_at_millis": 1782484792999,
+      "decrypted_created_at_millis": 1782484792000,
+      "decrypted_name": "Task31 security key",
+      "encrypted_metadata": "101112131415161718191a1b1c1d1e1f8be1754cd84449b4acbf34bd7de5cfd1351b055e3280b108259e0ed51b5a896654425354866117a780b3201b80b06cd2b2e072d27a57d3ec904de734bf23b1035431fa7009823e2bf99a355a9486002998d8e7b0c5e4302c59704d6a3918fba810e8060396bd521649dfbb71c59515be020af7d189fc94ed0515eeeb6e3287082429599e9ba77412d7601e8e994a29b6",
+      "iv": "101112131415161718191a1b1c1d1e1f",
+      "label": "second-truncation",
+      "name": "Task31 security key",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "created_at_millis": 1782484792000,
+      "decrypted_created_at_millis": 1782484792000,
+      "decrypted_name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "encrypted_metadata": "202122232425262728292a2b2c2d2e2fbd914642088b05d61226760a3f205122d2abe5a036af6f5ff03469e8e3e070cd084ee0e8a5e097fa898ce4eb9ba7a8afa271533951de51626660be1d6f05bf2044658fcb56b4e9019773db0b31d7b952bd3e0fcf813a09383d8a3b0721750449fab5bfb2bf1144ef5aa77b64f41e4d218646e69e595529902173ed21ddf0628b755091bd33783aa251c9c976f67ca5ac",
+      "iv": "202122232425262728292a2b2c2d2e2f",
+      "label": "ascii-limit",
+      "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "created_at_millis": 1782484792000,
+      "decrypted_created_at_millis": 1782484792000,
+      "decrypted_name": "ééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "encrypted_metadata": "303132333435363738393a3b3c3d3e3f9b0244ab43658e17c8620cda8084e6505ff1cc89200a975e27d1a092cc2571df126d7811d8e622339f588413868f532166f8e91d8a23512d45300ca0c32539125ed7ccc7bdc91d639422496cde70d847995243d8e239f7f0a12de03b3c82c810e2b420e99c5207eb0f67943913d0f461058ab7b780eb320fc7b7bfb08c8ff68e8829bd6eb976d092036482bd85e7f1cc",
+      "iv": "303132333435363738393a3b3c3d3e3f",
+      "label": "utf8-limit",
+      "name": "ééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "created_at_millis": 18446744073709551615,
+      "decrypted_created_at_millis": 18446744073709551000,
+      "decrypted_name": "",
+      "encrypted_metadata": "404142434445464748494a4b4c4d4e4fd9a27250f17e816546cd2539fa3d88af3374fe28a710587b54f2d18200efab65ef031f3aa57c25da9c47e80331d24fafb4ea60952e1d06e8a29bbeb291dfd88fa3dfa4538a017273b2609e596e4a8c5a1ba5dcf83285f2bec48ac645d9dded62c3da883a5f90abfca2232a1cae340d4371c8e03fbbe7eb37aaec0fa80e10320bd396b19c479a75abff79f13fe13db868",
+      "iv": "404142434445464748494a4b4c4d4e4f",
+      "label": "timestamp-limit",
+      "name": "",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    }
+  ],
+  "mfa_invalid_cases": [
+    {
+      "accepted": false,
+      "encrypted_metadata": "111112131415161718191a1b1c1d1e1f8be1754cd84449b4acbf34bd7de5cfd1351b055e3280b108259e0ed51b5a896654425354866117a780b3201b80b06cd2b2e072d27a57d3ec904de734bf23b1035431fa7009823e2bf99a355a9486002998d8e7b0c5e4302c59704d6a3918fba810e8060396bd521649dfbb71c59515be020af7d189fc94ed0515eeeb6e3287082429599e9ba77412d7601e8e994a29b6",
+      "label": "iv",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "accepted": false,
+      "encrypted_metadata": "101112131415161718191a1b1c1d1e1f8ae1754cd84449b4acbf34bd7de5cfd1351b055e3280b108259e0ed51b5a896654425354866117a780b3201b80b06cd2b2e072d27a57d3ec904de734bf23b1035431fa7009823e2bf99a355a9486002998d8e7b0c5e4302c59704d6a3918fba810e8060396bd521649dfbb71c59515be020af7d189fc94ed0515eeeb6e3287082429599e9ba77412d7601e8e994a29b6",
+      "label": "ciphertext",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "accepted": false,
+      "encrypted_metadata": "101112131415161718191a1b1c1d1e1f8be1754cd84449b4acbf34bd7de5cfd1351b055e3280b108259e0ed51b5a896654425354866117a780b3201b80b06cd2b2e072d27a57d3ec904de734bf23b1035431fa7009823e2bf99a355a9486002998d8e7b0c5e4302c59704d6a3918fba810e8060396bd521649dfbb71c59515be020af7d189fc94ed0515eeeb6e3287082429599e9ba77412d7601e8e994a29b7",
+      "label": "mac",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "accepted": false,
+      "encrypted_metadata": "101112131415161718191a1b1c1d1e1f8be1754cd84449b4acbf34bd7de5cfd1351b055e3280b108259e0ed51b5a896654425354866117a780b3201b80b06cd2b2e072d27a57d3ec904de734bf23b1035431fa7009823e2bf99a355a9486002998d8e7b0c5e4302c59704d6a3918fba810e8060396bd521649dfbb71c59515be020af7d189fc94ed0515eeeb6e3287082429599e9ba77412d7601e8e994a29",
+      "label": "length-159",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "accepted": false,
+      "encrypted_metadata": "101112131415161718191a1b1c1d1e1f8be1754cd84449b4acbf34bd7de5cfd1351b055e3280b108259e0ed51b5a896654425354866117a780b3201b80b06cd2b2e072d27a57d3ec904de734bf23b1035431fa7009823e2bf99a355a9486002998d8e7b0c5e4302c59704d6a3918fba810e8060396bd521649dfbb71c59515be020af7d189fc94ed0515eeeb6e3287082429599e9ba77412d7601e8e994a29b600",
+      "label": "length-161",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "accepted": false,
+      "encrypted_metadata": "101112131415161718191a1b1c1d1e1f8be1754cd84449b4acbf34bd7de5cfd1351b055e3280b108259e0ed51b5a896654425354866117a780b3201b80b06cd2b2e072d27a57d3ec904de734bf23b1035431fa7009823e2bf99a355a9486002998d8e7b0c5e4302c59704d6a3918fba810e8060396bd521649dfbb71c59515be020af7d189fc94ed0515eeeb6e3287082429599e9ba77412d7601e8e994a29b6",
+      "label": "wrong-key",
+      "svr_key": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "mfa_invalid_name_cases": [
+    {
+      "created_at_millis": 0,
+      "error": "The MFA key name is longer than the maximum of 98 bytes of UTF-8",
+      "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "created_at_millis": 0,
+      "error": "The MFA key name is longer than the maximum of 98 bytes of UTF-8",
+      "name": "éééééééééééééééééééééééééééééééééééééééééééééééééé"
+    },
+    {
+      "created_at_millis": 0,
+      "error": "The MFA key name contains U+0000",
+      "name": "before\u0000after"
     }
   ],
   "pin_cases": [
     {
+      "access_key": "ab7e8499d21f80a6600b3b9ee349ac6d72c07e3359fe885a934ba7aa844429f8",
+      "decoded_master_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1",
+      "encrypted_master_key": "0861a7b5dc31fc8dc2d333de020cc1de167f29e814050314a9bcdbc1b43968d18435e47dc87be602896e3164b7f90446",
+      "encryption_key": "44652df80490fc66bb864a9e638b2f7dc9e20649671dd66bbb9c37bee2bfecf1",
+      "master_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1",
       "pin": "password",
       "salt": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-      "access_key": "ab7e8499d21f80a6600b3b9ee349ac6d72c07e3359fe885a934ba7aa844429f8"
+      "tampered": [
+        {
+          "accepted": false,
+          "encrypted_master_key": "0961a7b5dc31fc8dc2d333de020cc1de167f29e814050314a9bcdbc1b43968d18435e47dc87be602896e3164b7f90446",
+          "offset": 0
+        },
+        {
+          "accepted": false,
+          "encrypted_master_key": "0861a7b5dc31fc8dc2d333de020cc1de177f29e814050314a9bcdbc1b43968d18435e47dc87be602896e3164b7f90446",
+          "offset": 16
+        },
+        {
+          "accepted": false,
+          "encrypted_master_key": "0861a7b5dc31fc8dc2d333de020cc1de167f29e814050314a9bcdbc1b43968d18435e47dc87be602896e3164b7f90447",
+          "offset": 47
+        }
+      ]
     },
     {
+      "access_key": "301d9dd1e96f20ce51083f67d3298fd37b97525de8324d5e12ed2d407d3d927b",
+      "decoded_master_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "encrypted_master_key": "e4d510dcd044127dfe4feec37cb3a249daf1768a22233f7948c0c67e9e0820910eb4e3068cb816d5c202c66f54ddc023",
+      "encryption_key": "b6f16aa0591732e339b7e99cdd5fd6586a1c285c9d66876947fd82f66ed99757",
+      "master_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "pin": "anotherpassword",
       "salt": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-      "access_key": "301d9dd1e96f20ce51083f67d3298fd37b97525de8324d5e12ed2d407d3d927b"
+      "tampered": [
+        {
+          "accepted": false,
+          "encrypted_master_key": "e5d510dcd044127dfe4feec37cb3a249daf1768a22233f7948c0c67e9e0820910eb4e3068cb816d5c202c66f54ddc023",
+          "offset": 0
+        },
+        {
+          "accepted": false,
+          "encrypted_master_key": "e4d510dcd044127dfe4feec37cb3a249dbf1768a22233f7948c0c67e9e0820910eb4e3068cb816d5c202c66f54ddc023",
+          "offset": 16
+        },
+        {
+          "accepted": false,
+          "encrypted_master_key": "e4d510dcd044127dfe4feec37cb3a249daf1768a22233f7948c0c67e9e0820910eb4e3068cb816d5c202c66f54ddc022",
+          "offset": 47
+        }
+      ]
+    }
+  ],
+  "seed": "upstream-v0.96.4-account-keys-known-tests",
+  "svr_cases": [
+    {
+      "label": "account-entropy",
+      "logging_key": "24f7ffa4b1cec8f4799525149bb54ac7ef9dc9e3e049fbfbe6616d3e8d6f5cb0",
+      "registration_lock": "d9ae8235c0870ee8d34720ad029b9e46db4c9ac687687868998fca2ce46001e0",
+      "registration_recovery_password": "2cb4b0ace626e4800ba2c7db5d1506ef7bf66f8708b35bce8dc2f33ac0ea1dc0",
+      "storage_service_key": "9b9d99d09d8af9f6bdc66a8549c1e4bb1520f1ddbe494c7effc376f6639f8b3d",
+      "svr_key": "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+    },
+    {
+      "label": "zero",
+      "logging_key": "478c0913c1a87e2ca7c9b79a292ca894e453ded515a85e9177bab11f476a833a",
+      "registration_lock": "1d2ebfb68c3b6321d21bf5b4410146fa978399bbd6de677f9cf4f52df58e1a8f",
+      "registration_recovery_password": "7c8ff82f2a823b07b51c2cee648b710bf78aeff49cdbe47295aa21021cd43b35",
+      "storage_service_key": "ccaf84d6a1bae7b5d597c920639f52d3f3c9520f6b33ca8a708ab6e8fdcb7a34",
+      "svr_key": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "label": "ones",
+      "logging_key": "de41a80b337d7aeefc49e6d390621f8bea5c8dd19f89a4bf916883ad001136fb",
+      "registration_lock": "69f195f31069f0786ad2d6b3de4d63ecb020a2c1bbee0ccc2fb1e17197a9ee8c",
+      "registration_recovery_password": "da181f31c66b99ed0315d9911425aad3ef17b19df10708c02643b67595d56f85",
+      "storage_service_key": "2de8788431dfc760bd96c5d919efff60b3d3846bc726a6fcaa0a0573795faf06",
+      "svr_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "label": "sequence",
+      "logging_key": "82bf1f24762ff8b1eb0472e949778dd2357d761e966b8ee3b4c6af7996a67630",
+      "registration_lock": "0c5f865eea5eebe9ef4fa8c4d99cb91de301bebb5b3b91bf775da1a57c725975",
+      "registration_recovery_password": "bdd982b7baf1d3b4796a2e669befc33b9101bc5eb67f7433dbac815ccb245ae0",
+      "storage_service_key": "d9fd23ee99c148ad879f62609297139e6a36f415b1ad779d23c687b1fa6d36d9",
+      "svr_key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
     }
   ]
 }

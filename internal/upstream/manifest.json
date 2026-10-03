@@ -8,9 +8,9 @@
       "report_path": "compat/coverage_manifest.json",
       "coverage_status": "vector-backed",
       "checksum_path": "compat/vectors/account-keys.json",
-      "checksum_sha256": "539d5ae3f25007aea4430c84dbb4c93a23af2c9bf5e654a5d5a0569f012e5b3d",
+      "checksum_sha256": "995ae42b4adcf30034cc11028c36ebd30a66399a14ee186366e702050082b36b",
       "official_app_interop_claim": false,
-      "notes": "Account entropy, SVR key, backup key, backup ID, and PIN access key derivations are locked by committed upstream-compatible vectors."
+      "notes": "Legacy v0.96.4 account entropy, backup ID, and PIN access key vectors are preserved. The same fixture adds v0.104.0 SVR derivations, PIN master-key SIV, media/thumbnail key splits, and fixed-size MFA metadata; its _note records the immutable upstream commit and tag object. The global compatibility baseline remains v0.96.4 pending the full refresh."
     },
     {
       "name": "usernames",
