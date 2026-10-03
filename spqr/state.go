@@ -1,7 +1,7 @@
 // Package spqr implements Signal's Sparse Post-Quantum Ratchet (SPQR), the
 // Stage-2 post-quantum layer that augments the Double Ratchet with chunked
 // ML-KEM-768 key agreement. It is a pure-Go port of the SPQR reference crate
-// (sparsepostquantumratchet v1.5.1) layered on the incremental ML-KEM-768 KEM
+// (sparsepostquantumratchet v1.6.0) layered on the incremental ML-KEM-768 KEM
 // in internal/mlkem768incr.
 //
 // This file is Slice A: the ratchet-state codec. A SPQR ratchet state is

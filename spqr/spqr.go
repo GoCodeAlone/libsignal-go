@@ -1,7 +1,7 @@
 // Copyright 2026 libsignal-go contributors.
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// Top-level SPQR orchestration, ported from SparsePostQuantumRatchet v1.5.1
+// Top-level SPQR orchestration, ported from SparsePostQuantumRatchet v1.6.0
 // src/lib.rs. This is the public surface the Double Ratchet layer calls: it
 // decodes the serialized PqRatchetState, drives the v1 chunked state machine one
 // step (v1.go), folds the per-epoch SCKA secret into the epoch Chain (chain.go),
@@ -11,8 +11,9 @@
 // Version negotiation: a state initialized at version V1 with min_version V0 may
 // be negotiated DOWN to V0 by a peer that only speaks V0 (it sends an empty/V0
 // message). Receiving a lower version than ours triggers the downgrade (unless
-// it is below our min_version, which is an error). Once we negotiate or once we
-// receive any message, negotiation is closed.
+// it is below our min_version, which is an error). A higher-version peer draws
+// epoch-zero keys without interpreting its payload and keeps negotiation open.
+// A matching-version receive or a downgrade closes negotiation.
 //
 // The chain-epoch bridge: the v1 machine numbers epochs from 1 (the first KEM
 // exchange completes epoch 1), but the Chain folds epoch secrets starting at
@@ -63,7 +64,7 @@ type SendResult struct {
 // message key.
 type RecvResult struct {
 	State SerializedState
-	Key   []byte // nil when no message key was produced
+	Key   []byte // nil for None; may be present but empty during higher-version negotiation
 }
 
 // VersionStatus reports a state's negotiation status. Mirrors lib.rs
@@ -77,8 +78,8 @@ type VersionStatus struct {
 
 // Orchestration errors, mirroring the relevant lib.rs Error variants.
 var (
-	// ErrVersionMismatch is returned when a peer presents a lower version than
-	// ours and we are not allowed to negotiate. Mirrors Error::VersionMismatch.
+	// ErrVersionMismatch is returned when a peer presents a different version
+	// after negotiation (unless below the minimum). Mirrors Error::VersionMismatch.
 	ErrVersionMismatch = errors.New("spqr: version mismatch after negotiation")
 	// ErrMinimumVersion is returned when a peer's version is below our configured
 	// minimum. Mirrors Error::MinimumVersion.
@@ -215,24 +216,40 @@ func Send(state SerializedState, rng io.Reader) (*SendResult, error) {
 // Recv folds an inbound SPQR message into the state. It first performs version
 // negotiation (a lower-version message may downgrade us, or be rejected), then
 // drives the v1 recv step, folds any epoch secret into the Chain, and derives the
-// message key. Mirrors lib.rs recv.
+// message key. Higher versions retain negotiation and draw epoch-zero chain
+// keys without interpreting their payload. Mirrors lib.rs recv.
 func Recv(state SerializedState, msg SerializedMessage) (*RecvResult, error) {
+	preamble, err := deserializePreamble(msg)
+	if err != nil {
+		return nil, err
+	}
 	prest, err := DecodeState(state)
 	if err != nil {
 		return nil, err
 	}
 
-	st, err := negotiateRecv(prest, msg)
+	st, err := negotiateRecv(prest, preamble.version)
 	if err != nil {
 		return nil, err
 	}
-	if st == nil {
-		// Their version is too high for us; ignore the message, keep our state.
-		return &RecvResult{State: append([]byte(nil), state...), Key: nil}, nil
-	}
-
 	if st.GetV1() == nil {
 		return &RecvResult{State: nil, Key: nil}, nil
+	}
+	if proto.Version(preamble.version) > stateVersion(st) {
+		ch, err := chainFrom(st.GetChain(), st.GetVersionNegotiation())
+		if err != nil {
+			return nil, err
+		}
+		key, err := ch.recvKey(0, preamble.index)
+		if err != nil {
+			return nil, err
+		}
+		st.Chain = ch.toProto()
+		encoded, err := EncodeState(st)
+		if err != nil {
+			return nil, err
+		}
+		return &RecvResult{State: encoded, Key: key}, nil
 	}
 
 	sckaMsg, index, _, derr := deserializeMessage(msg)
@@ -259,16 +276,9 @@ func Recv(state SerializedState, msg SerializedMessage) (*RecvResult, error) {
 		}
 	}
 
-	keyEpoch := sckaMsg.epoch - 1
-	var msgKey []byte
-	if keyEpoch == 0 && index == 0 {
-		msgKey = nil
-	} else {
-		mk, kerr := ch.recvKey(keyEpoch, index)
-		if kerr != nil {
-			return nil, kerr
-		}
-		msgKey = mk
+	msgKey, err := ch.recvKey(sckaMsg.epoch-1, index)
+	if err != nil {
+		return nil, err
 	}
 
 	out := &proto.PqRatchetState{
@@ -284,26 +294,28 @@ func Recv(state SerializedState, msg SerializedMessage) (*RecvResult, error) {
 }
 
 // negotiateRecv performs version negotiation for an inbound message and returns
-// the state to process the message against. A nil state means the message's
-// version is higher than ours and should be ignored. Mirrors the negotiation
-// block at the top of lib.rs recv.
-func negotiateRecv(prest *proto.PqRatchetState, msg SerializedMessage) (*proto.PqRatchetState, error) {
-	mv, ok := msgVersion(msg)
-	if !ok {
-		return nil, nil // their version is too high for us; ignore
-	}
+// the state to process the message against. Mirrors the negotiation block at
+// the top of lib.rs recv; higher versions retain the negotiation block.
+func negotiateRecv(prest *proto.PqRatchetState, mv byte) (*proto.PqRatchetState, error) {
+	version := proto.Version(mv)
 	ourV := stateVersion(prest)
-	if mv >= ourV {
-		return prest, nil // equal or higher-than-ours-but-recognized: proceed as-is
-	}
-	// Their version is lower than ours: negotiate down if allowed.
 	vn := prest.GetVersionNegotiation()
-	if vn == nil {
-		return nil, ErrVersionMismatch
+	minimum, negotiating := ourV, ourV == 0
+	if vn != nil {
+		// Rust compares the low byte of the stored i32 enum, even for an
+		// unknown value. Mask explicitly to preserve that wire behavior.
+		minimum, negotiating = vn.GetMinVersion()&0xff, true
 	}
-	if mv < vn.GetMinVersion() {
+	if version < minimum {
 		return nil, ErrMinimumVersion
 	}
+	if version != ourV && !negotiating {
+		return nil, ErrVersionMismatch
+	}
+	if ourV == 0 || version >= ourV {
+		return prest, nil
+	}
+	// Their version is lower than ours: negotiate down if allowed.
 	ch, err := chainFrom(prest.GetChain(), vn)
 	if err != nil {
 		return nil, err
@@ -312,26 +324,10 @@ func negotiateRecv(prest *proto.PqRatchetState, msg SerializedMessage) (*proto.P
 		VersionNegotiation: nil, // our negotiation; disallow further
 		Chain:              ch.toProto(),
 	}
-	if inner := initInner(mv, vn.GetDirection(), vn.GetAuthKey()); inner != nil {
+	if inner := initInner(proto.Version(mv), vn.GetDirection(), vn.GetAuthKey()); inner != nil {
 		out.Inner = inner
 	}
 	return out, nil
-}
-
-// msgVersion returns the version byte of a serialized message (V0 for empty), or
-// ok=false when the version is unrecognized (too high for us). Mirrors msg_version.
-func msgVersion(msg SerializedMessage) (proto.Version, bool) {
-	if len(msg) == 0 {
-		return proto.Version_V_0, true
-	}
-	switch msg[0] {
-	case byte(proto.Version_V_0):
-		return proto.Version_V_0, true
-	case byte(proto.Version_V_1):
-		return proto.Version_V_1, true
-	default:
-		return 0, false
-	}
 }
 
 // resolveSendChain resolves the Chain for a Send: the stored chain, or one built

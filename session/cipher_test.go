@@ -14,7 +14,10 @@ import (
 
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
+	pb "github.com/GoCodeAlone/libsignal-go/proto"
 	"github.com/GoCodeAlone/libsignal-go/protocol"
+	"github.com/GoCodeAlone/libsignal-go/spqr"
+	googleproto "google.golang.org/protobuf/proto"
 )
 
 // convo wires an established Alice<->Bob pair through the stores, ready to
@@ -354,14 +357,31 @@ func TestCipherTripleRatchetOnWire(t *testing.T) {
 }
 
 // TestCipherMixedVersionFallback simulates a peer that does not speak SPQR (an
-// older client): its stored SPQR state is empty (V0). With min_version V0 on
-// both sides, the conversation must still work — the V0 side sends no pq_ratchet
+// older client): its stored SPQR state is empty (V0). With an explicitly restored
+// legacy min_version V0 state, the conversation still works — the V0 side sends no pq_ratchet
 // field and contributes no key, and the V1 side negotiates down rather than
-// failing. This is the staged-rollout fallback (min_version V0) the integration
-// is designed around.
+// failing. Fresh sessions require V1; this only proves legacy-state compatibility.
 func TestCipherMixedVersionFallback(t *testing.T) {
 	c := setupConvo(t)
-	ctx := context.Background()
+	ctx := t.Context()
+
+	aliceRec, err := c.aliceSess.LoadSession(ctx, c.bobAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy pb.PqRatchetState
+	if err := googleproto.Unmarshal(aliceRec.CurrentState().PQRatchetState(), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.VersionNegotiation.MinVersion = pb.Version_V_0
+	encoded, err := googleproto.Marshal(&legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceRec.CurrentState().SetPQRatchetState(encoded)
+	if err := c.aliceSess.StoreSession(ctx, c.bobAddr, aliceRec); err != nil {
+		t.Fatal(err)
+	}
 
 	// Make Bob a "V0" peer by clearing his SPQR state (as if he never
 	// initialized one). Alice keeps her V1 (min V0) state.
@@ -397,6 +417,27 @@ func TestCipherMixedVersionFallback(t *testing.T) {
 		if got := c.aliceDecrypt(t, c.bobEncrypt(t, []byte("pong"))); !bytes.Equal(got, []byte("pong")) {
 			t.Fatalf("round %d pong (mixed-version): %q", i, got)
 		}
+	}
+}
+
+func TestCipherFreshSessionRejectsSPQRDowngradeWithoutStoreMutation(t *testing.T) {
+	c := setupConvo(t)
+	bob, err := c.bobSess.LoadSession(t.Context(), c.aliceAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob.CurrentState().SetPQRatchetState(nil)
+	if err := c.bobSess.StoreSession(t.Context(), c.aliceAddr, bob); err != nil {
+		t.Fatal(err)
+	}
+	message := c.bobEncrypt(t, []byte("legacy peer cannot downgrade fresh PQXDH"))
+	before := bytes.Clone(c.aliceSess.records[c.bobAddr.String()])
+	plaintext, err := Decrypt(t.Context(), message, c.bobAddr, c.aliceSess, cryptorand.Reader)
+	if !errors.Is(err, spqr.ErrMinimumVersion) || len(plaintext) != 0 {
+		t.Fatalf("fresh SPQR floor not enforced: %v", err)
+	}
+	if !bytes.Equal(before, c.aliceSess.records[c.bobAddr.String()]) {
+		t.Fatal("SPQR downgrade rejection mutated session state")
 	}
 }
 

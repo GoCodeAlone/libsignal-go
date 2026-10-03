@@ -13,6 +13,35 @@ import (
 // ResolveMaxJump/resolveMaxOOO apply the 25000/2000 library defaults.
 func defaultParams() *proto.ChainParams { return &proto.ChainParams{} }
 
+func TestV16ChainNextLength(t *testing.T) {
+	for _, size := range []int{0, 31, 32, 33} {
+		for _, recv := range []bool{false, true} {
+			pb := newChain([]byte("seed"), proto.Direction_A_2_B, defaultParams()).toProto()
+			if recv {
+				pb.Links[0].Recv.Next = make([]byte, size)
+			} else {
+				pb.Links[0].Send.Next = make([]byte, size)
+			}
+			_, err := chainFromProto(pb)
+			if size == 0 || size == 32 {
+				if err != nil {
+					t.Fatalf("size=%d recv=%t: %v", size, recv, err)
+				}
+			} else if !errors.Is(err, ErrChainDecode) {
+				t.Errorf("size=%d recv=%t: got %v want ErrChainDecode", size, recv, err)
+			}
+		}
+	}
+}
+
+func TestV16ChainZeroReceive(t *testing.T) {
+	c := &chain{}
+	got, err := c.recvKey(0, 0)
+	if err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("(0,0) must return an empty key before epoch lookup: key=%#v err=%v", got, err)
+	}
+}
+
 // TestChainDirectionsMatch ports chain.rs directions_match: an A2B chain's
 // send_key must equal the mirror B2A chain's recv_key at the same (epoch,index),
 // across an epoch advance and a run of sends. This is the cross-direction

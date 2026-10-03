@@ -102,14 +102,89 @@ Domains:
   the erasure property test alone is blind to a uniformly-wrong endianness, so the
   golden bytes are required. Committed at
   `internal/spqr/chunked/testdata/spqr_chunks.json`.
+- `spqr-v16` — real SPQR v1.6.0 receive results for version negotiation,
+  directional chain-seed lengths, and epoch-zero/index-zero keys. Committed at
+  `compat/vectors/spqr-v16.json`; see the schema below.
 - `account-keys` — upstream account entropy/backup derivations, SVR-key
   derivations, PIN master-key HMAC-SHA256-SIV, media key splits, and deterministic
   MFA metadata encryption/decryption. See the schema below.
 
-The dependency pin alone does not upgrade the Go protocol/SPQR implementation or
-the provenance of previously committed fixtures. Only
-`compat/vectors/account-keys.json` is regenerated here; the remaining protocol,
-SPQR, and fixture refresh work is tracked separately.
+The dependency pin does not change the provenance of previously committed
+fixtures. Task31 extended `compat/vectors/account-keys.json`; Task32 adds the
+separate `spqr-v16.json` oracle. Existing protocol, session, Sender Key, and PQ
+fixtures retain their bytes and historical provenance.
+
+### SPQR v1.6 Schema And Replay
+
+`spqr-v16.json` records the immutable SPQR/libsignal commits in `_note`. Each
+`cases` entry contains `label`, input `state` and `message` (lowercase hex), and
+either `result: {state, key}` or the upstream error variant in `error`.
+`key: null` is `None`; `key: ""` is `Some(empty)` and must not be collapsed to
+null. Successful states and keys come directly from upstream `spqr::recv`.
+
+Cases cover matching v1; higher versions 2/255 during open negotiation and after
+completion; replay; below-minimum precedence; malformed preambles even for
+disabled states; downgrade to v0; and `(epoch, index) = (0, 0)`. Higher-version
+messages draw keys from chain epoch zero using the preamble index, retain
+negotiation and the v1 inner state, and do not interpret the remaining payload.
+The nonempty directional chain `next` seeds must be 32 bytes; 0/32-byte positive
+and 31/33-byte negative cases cover both send and receive seeds. Rust does not
+add a `next_root` length check.
+
+Stored minimum-version enum values use Rust's low-byte conversion. The fixture
+also covers negative and greater-than-255 values without introducing stricter
+Go-only rejection rules. All 36 cases replay against the actual Rust crate.
+
+Adversarial chain inputs are constructed using only the unchanged protobuf
+field tags/lengths in `pq_ratchet.proto`. The harness does not reimplement the
+ratchet, key derivation, state validation, or expected result.
+
+With `RUSTC`/`RUSTDOC` selected as above, from this directory:
+
+```sh
+rustup run 1.98.1 cargo build --release --locked -j 2
+target/release/rust-harness gen-vectors spqr-v16 > ../vectors/spqr-v16.json
+rustup run 1.98.1 cargo test --release --locked -j 2 task32_oracle_tests
+```
+
+If using `CARGO_TARGET_DIR`, substitute that directory for `target` in the
+binary path. The Go consumer is `go test ./compat -run TestSPQRV16Oracle -count=1`
+from the module root.
+
+### Recipient Prekey Identity Oracle
+
+The additive `session.prekey-identity-mismatch` RPC accepts
+`{with_one_time: bool}` (default true). It runs the existing genuine upstream
+bundle/process/encrypt/decrypt path to establish a fresh recipient session, then
+changes only the duplicate prekey wrapper's identity. The base key and inner
+SignalMessage are preserved using upstream constructors.
+
+The probe resets upstream's in-memory known-identity map before the duplicate
+attempt, so TOFU accepts the replacement and the matching-session identity
+consistency check is reached. Otherwise trust rejection would mask that check.
+This setup is explicit in `trust_setup`/`trust_accepted`; it does not change the
+existing session RPCs or any production API. The RPC uses two reserved internal
+store handles and removes them on successful completion.
+
+The result contains `upstream_commit`, `with_one_time`, `fresh` (plaintext hex,
+session creation, identity save, optional prekey consumption, and Kyber-base-key
+use), `base_key_matches`, `inner_message_matches`, `error_variant`, diagnostic
+`error`, `unchanged`, and `kyber_mark_used_calls`. `unchanged` compares identity
+(local pair, registration ID, and remote mapping), prekey, signed-prekey,
+Kyber-record, and serialized-session observations immediately before/after the
+failed attempt. Kyber usage is private upstream, so a delegating store observer
+counts mark-used calls separately; the expected count is zero.
+
+```sh
+printf '%s\n' \
+  '{"method":"session.prekey-identity-mismatch","params":{"with_one_time":true}}' \
+  '{"method":"session.prekey-identity-mismatch","params":{"with_one_time":false}}' \
+  | target/release/rust-harness interop
+```
+
+Both runs must return `InvalidMessage(PreKey)`, all `unchanged` values true, and
+zero Kyber mark-used calls. This is runtime evidence, not deterministic
+ciphertext generation: the existing session path uses OS randomness.
 
 ### Account-Key Schema And Replay
 

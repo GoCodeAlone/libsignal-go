@@ -3,7 +3,7 @@
 //
 // The SPQR epoch key Chain — the Double-Ratchet-style symmetric key schedule
 // that turns each KEM epoch secret into a stream of per-message keys. Ported
-// from SparsePostQuantumRatchet v1.5.1 src/chain.rs. This is part of Slice C
+// from SparsePostQuantumRatchet v1.6.0 src/chain.rs. This is part of Slice C
 // (the SPQR state machine): send/recv drive the Chain, feeding it each new KEM
 // shared secret as an epoch secret and drawing send/recv message keys from it.
 
@@ -213,7 +213,7 @@ func (d chainEpochDirection) toProto() *proto.Chain_Epoch_EpochDirection {
 }
 
 func chainEpochDirectionFromProto(pb *proto.Chain_Epoch_EpochDirection) (chainEpochDirection, error) {
-	if pb == nil {
+	if pb == nil || (len(pb.GetNext()) != 0 && len(pb.GetNext()) != chainKeyLen) {
 		return chainEpochDirection{}, ErrChainDecode
 	}
 	return chainEpochDirection{
@@ -344,6 +344,9 @@ func (c *chain) sendKey(epoch uint64) (uint32, []byte, error) {
 
 // recvKey returns the recv-chain key at (epoch, index). Mirrors Chain::recv_key.
 func (c *chain) recvKey(epoch uint64, index uint32) ([]byte, error) {
+	if epoch == 0 && index == 0 {
+		return []byte{}, nil
+	}
 	epochIndex, err := c.epochIdx(epoch)
 	if err != nil {
 		return nil, err

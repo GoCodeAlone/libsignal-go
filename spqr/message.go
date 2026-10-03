@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 // The SPQR v1 message wire codec, ported from
-// SparsePostQuantumRatchet v1.5.1 src/v1/chunked/states/serialize.rs
+// SparsePostQuantumRatchet v1.6.0 src/v1/chunked/states/serialize.rs
 // (Message::serialize / deserialize). A serialized message is:
 //
 //	[version]      - 1 byte (always Version_V_1 for a v1 message)
@@ -101,24 +101,18 @@ func deserializeMessage(b []byte) (m v1Message, index uint32, at int, err error)
 	if len(b) == 0 || b[0] != versionByteV1 {
 		return v1Message{}, 0, 0, ErrMsgDecode
 	}
-	at = 1
-	epoch, n, ok := decodeVarint(b, at)
-	if !ok || epoch == 0 {
+	preamble, err := deserializePreamble(b)
+	if err != nil {
 		return v1Message{}, 0, 0, ErrMsgDecode
 	}
-	at = n
-	idx64, n, ok := decodeVarint(b, at)
-	if !ok || idx64 > 0xFFFFFFFF {
-		return v1Message{}, 0, 0, ErrMsgDecode
-	}
-	at = n
+	at = preamble.at
 	if at >= len(b) {
 		return v1Message{}, 0, 0, ErrMsgDecode
 	}
 	mt := b[at]
 	at++
 
-	m = v1Message{epoch: epoch}
+	m = v1Message{epoch: preamble.epoch}
 	switch mt {
 	case msgTypeNone:
 		m.kind = payloadNone
@@ -146,7 +140,31 @@ func deserializeMessage(b []byte) (m v1Message, index uint32, at int, err error)
 	default:
 		return v1Message{}, 0, 0, ErrMsgDecode
 	}
-	return m, uint32(idx64), at, nil
+	return m, preamble.index, at, nil
+}
+
+type messagePreamble struct {
+	version byte
+	epoch   uint64
+	index   uint32
+	at      int
+}
+
+// deserializePreamble matches v1.6's version-independent msg_preamble. Even an
+// unsupported version must carry a valid epoch/index before negotiation.
+func deserializePreamble(b []byte) (messagePreamble, error) {
+	if len(b) == 0 {
+		return messagePreamble{}, nil
+	}
+	epoch, at, ok := decodeVarint(b, 1)
+	if !ok || epoch == 0 {
+		return messagePreamble{}, ErrMsgDecode
+	}
+	index, at, ok := decodeVarint(b, at)
+	if !ok || index > 0xFFFFFFFF {
+		return messagePreamble{}, ErrMsgDecode
+	}
+	return messagePreamble{version: b[0], epoch: epoch, index: uint32(index), at: at}, nil
 }
 
 // decodeChunk reads a chunk: a varint index (must fit u16) followed by exactly 32

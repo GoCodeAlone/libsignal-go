@@ -193,6 +193,15 @@ Runnable examples live alongside the packages they document (Go renders them in
 
 - [`session.Example_sessionRoundTrip`](session/example_test.go) — a PQXDH
   handshake and the first encrypted message between two parties.
+- [`session.DecryptPreKey`](session/prekey_decrypt.go) — recipient-side PQXDH
+  establishment or session resumption using `PreKeyDecryptStores`. It verifies
+  identity trust and the embedded message before saving identity/session state,
+  marking Kyber use against the signed EC pre-key, and removing an optional
+  one-time pre-key. Existing sessions must match both base key and identity;
+  rejected messages leave all stores unchanged. Hosts must serialize operations
+  per peer; store-write errors may leave earlier writes committed, so atomic
+  persistence requires a host transaction across the stores. Fresh sessions
+  require SPQR V1; explicitly stored legacy V0-negotiation states remain readable.
 - [`groups.Example_groupMessaging`](groups/example_test.go) — sender-key
   distribution and a group-encrypted message.
 - [`sealedsender.Example_sealedSender`](sealedsender/example_test.go) — a sealed

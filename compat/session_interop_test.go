@@ -4,26 +4,17 @@
 //go:build interop
 
 // Session interop: drives a full PQXDH / Double Ratchet conversation between the
-// pure-Go session layer and the genuine upstream session API (v0.91.0) exposed
+// pure-Go session layer and the genuine upstream session API (v0.104.0) exposed
 // by the Rust harness over JSON-RPC. This is the protocol's core cross-impl
 // proof — both impls must agree on the handshake and on every message key,
 // including out-of-order and skipped-key delivery, in BOTH role assignments
 // (Go=Alice/Rust=Bob and Rust=Alice/Go=Bob) and with AND without a one-time
 // pre-key (the no-OPK case exercises the optional-DH4 PQXDH path).
 //
-// v0.96.4 sessions are PQXDH/v4 only — X3DH/v3 is removed upstream (the decrypt
-// path returns "X3DH no longer supported"). At v0.96.4 the Sparse Post-Quantum
-// Ratchet (SPQR, spqr v1.5.1) is MANDATORY: initialize_{alice,bob}_session set
-// min_version V1 ("require all clients speak SPQR"). The Go port keeps
-// min_version V0 (it accepts a V0 peer too) but SPEAKS V1, so against the
-// v0.96.4 (min V1) harness the session negotiates V1 both roles — every v4
-// SignalMessage carries a non-empty pq_ratchet field, and the prekey message is
-// accepted by the min-V1 upstream (no floor-mismatch refusal). This suite
-// asserts both (SPQR on the wire both directions + the Go port mixes the SPQR
-// key) — at v0.96.4 it is the REQUIRED path, not a negotiable-down option. A v3
-// decrypt-vector suite is not achievable with the v0.96.4 public API (documented
-// limitation — see compat/README.md); the v4 interop here is the full surface
-// pinned upstream supports.
+// Both implementations establish PQXDH/v4 sessions with a mandatory SPQR V1
+// floor. Recipient messages go through DecryptPreKey, including trust checks,
+// pre-key consumption and durable session writes, rather than manual setup.
+// Every message must carry SPQR data and derive the same keys across languages.
 //
 // Like the other interop tests this is gated behind the `interop` build tag and
 // driven via COMPAT_HARNESS_BIN (see interop_test.go for the client).
@@ -39,10 +30,12 @@ import (
 	"github.com/GoCodeAlone/libsignal-go/address"
 	"github.com/GoCodeAlone/libsignal-go/curve"
 	"github.com/GoCodeAlone/libsignal-go/kem"
+	pb "github.com/GoCodeAlone/libsignal-go/proto"
 	"github.com/GoCodeAlone/libsignal-go/protocol"
 	"github.com/GoCodeAlone/libsignal-go/session"
 	"github.com/GoCodeAlone/libsignal-go/stores"
 	"github.com/GoCodeAlone/libsignal-go/stores/inmem"
+	googleproto "google.golang.org/protobuf/proto"
 )
 
 // Ciphertext type tags, matching CiphertextMessageType (protocol.rs) and the
@@ -157,8 +150,8 @@ func rustDecrypt(t *testing.T, h *harness, handle, remoteName string, m ctMsg) [
 // --- Go-side bundle + recipient helpers ----------------------------------
 
 // goBob holds the recipient key material the Go side keeps when it plays Bob, so
-// it can both publish a bundle (for a Rust=Alice) and run InitializeBobSession
-// once it receives a PreKeySignalMessage. v0.91.0 PreKeyBundle requires a Kyber
+// it can publish a bundle (for a Rust=Alice) and populate the recipient stores
+// used by DecryptPreKey. PreKeyBundle requires a Kyber
 // pre-key; the one-time EC pre-key is optional.
 type goBob struct {
 	identity  curve.KeyPair
@@ -227,61 +220,30 @@ func (b *goBob) bundle(t *testing.T) bundleJSON {
 	return out
 }
 
-// initBobSession establishes Go-Bob's session from a received PreKeySignalMessage
-// and stores it under the remote (Alice) address. It mirrors what an upstream
-// message_decrypt_prekey does before decrypting the inner SignalMessage: resolve
-// the recipient pre-keys (here held directly), run InitializeBobSession from the
-// initiator's base key + Kyber ciphertext, and persist the session.
-//
-// The Go session package has no single public message_decrypt_prekey entry; the
-// recipient flow is composed here from its public building blocks
-// (DeserializePreKeySignalMessage + InitializeBobSession + Decrypt), exactly as
-// session/cipher_test.go's setupConvo does. No production code is added.
-func (b *goBob) initBobSession(t *testing.T, sessStore session.Store, aliceAddr address.ProtocolAddress, pkMsg ctMsg, withOneTime bool) {
+// recipientStores publishes records without initializing a session. The real
+// recipient API must establish it from the incoming pre-key message.
+func (b *goBob) recipientStores(t *testing.T, sessStore session.Store) session.PreKeyDecryptStores {
 	t.Helper()
-	if pkMsg.Type != typePreKey {
-		t.Fatalf("Go=Bob expected a PreKey message (type %d), got type %d", typePreKey, pkMsg.Type)
-	}
-	raw := mustDecodeHex(t, pkMsg.Serialized)
-	m, err := protocol.DeserializePreKeySignalMessage(raw)
-	if err != nil {
-		t.Fatalf("DeserializePreKeySignalMessage: %v", err)
-	}
-
-	// Assert the message's one-time-prekey use matches the bundle we published.
-	// This is what proves the without_one_time case truly drives the DH4-ABSENT
-	// path: the upstream initiator must have omitted the one-time prekey (no
-	// PreKeyID on the wire), so InitializeBobSession runs with OurOneTime=nil and
-	// computes the master secret without DH4. If upstream had included an OPK
-	// here, PreKeyID would be set and this would fail loudly.
-	usedOneTime := m.PreKeyID() != nil
-	if usedOneTime != withOneTime {
-		t.Fatalf("incoming PreKey message one-time-prekey use = %v, want %v (DH4-absent path requires no PreKeyID)", usedOneTime, withOneTime)
-	}
-
-	var oneTime *curve.KeyPair
-	if usedOneTime {
-		if b.oneTime == nil {
-			t.Fatal("incoming message used a one-time pre-key but Go=Bob has none")
+	marshal := func(record googleproto.Message) []byte {
+		raw, err := googleproto.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
 		}
-		oneTime = b.oneTime
+		return raw
 	}
-
-	state, err := session.InitializeBobSession(session.BobParams{
-		OurIdentity:   b.identity,
-		OurSignedPre:  b.signedPre,
-		OurOneTime:    oneTime,
-		OurKyber:      b.kyber,
-		TheirIdentity: m.IdentityKey(),
-		TheirBaseKey:  m.BaseKey(),
-		KyberCipher:   m.KyberCiphertext(),
-	})
-	if err != nil {
-		t.Fatalf("InitializeBobSession: %v", err)
+	pre, signed, kyber := inmem.NewPreKeyStore(), inmem.NewSignedPreKeyStore(), inmem.NewKyberPreKeyStore()
+	if err := signed.SaveSignedPreKey(t.Context(), 55, marshal(&pb.SignedPreKeyRecordStructure{Id: 55, PublicKey: b.signedPre.PublicKey.Serialize(), PrivateKey: b.signedPre.PrivateKey.Serialize()})); err != nil {
+		t.Fatal(err)
 	}
-	if err := sessStore.StoreSession(context.Background(), aliceAddr, session.NewSessionRecord(state)); err != nil {
-		t.Fatalf("store Go=Bob session: %v", err)
+	if err := kyber.SaveKyberPreKey(t.Context(), 66, marshal(&pb.SignedPreKeyRecordStructure{Id: 66, PublicKey: b.kyber.PublicKey.Serialize(), PrivateKey: b.kyber.SecretKey.Serialize()})); err != nil {
+		t.Fatal(err)
 	}
+	if b.oneTime != nil {
+		if err := pre.SavePreKey(t.Context(), 77, marshal(&pb.PreKeyRecordStructure{Id: 77, PublicKey: b.oneTime.PublicKey.Serialize(), PrivateKey: b.oneTime.PrivateKey.Serialize()})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return session.PreKeyDecryptStores{Sessions: sessStore, Identities: inmem.NewIdentityKeyStore(b.identity, b.regID), PreKeys: pre, SignedKeys: signed, KyberPreKeys: kyber}
 }
 
 // --- the suite -----------------------------------------------------------
@@ -394,18 +356,26 @@ func TestSessionInteropRustAliceGoBob(t *testing.T) {
 			rustProcessBundleAsAlice(t, h, aliceHandle, bobAddr.Name(), bob.bundle(t))
 
 			bobSess := inmem.NewSessionStore()
+			recipient := bob.recipientStores(t, bobSess)
 
 			// Rust=Alice's first message is a PreKey message; Go=Bob establishes its
-			// session from it, then decrypts the inner SignalMessage.
+			// session and authenticates it through the public recipient API.
 			first := rustEncrypt(t, h, aliceHandle, bobAddr.Name(), []byte("alice msg 0"))
-			bob.initBobSession(t, bobSess, aliceAddr, first, withOneTime)
-			if got := goDecryptPreKey(ctx, t, bobSess, aliceAddr, first); !bytes.Equal(got, []byte("alice msg 0")) {
+			firstMsg, err := protocol.DeserializePreKeySignalMessage(mustDecodeHex(t, first.Serialized))
+			if err != nil || (firstMsg.PreKeyID() != nil) != withOneTime {
+				t.Fatalf("incoming pre-key message does not match the offered one-time key: %v", err)
+			}
+			if got := goDecryptPreKey(ctx, t, recipient, aliceAddr, first); !bytes.Equal(got, []byte("alice msg 0")) {
 				t.Fatalf("Go=Bob decrypt msg 0: got %q", got)
+			}
+			// Repeat before acknowledgment: the one-time key is already consumed.
+			second := rustEncrypt(t, h, aliceHandle, bobAddr.Name(), []byte("alice pre-key msg 1"))
+			if got := goDecryptPreKey(ctx, t, recipient, aliceAddr, second); !bytes.Equal(got, []byte("alice pre-key msg 1")) {
+				t.Fatalf("Go=Bob duplicate pre-key session: got %q", got)
 			}
 
 			// Go=Bob replies so Rust=Alice's session is acknowledged.
-			bobID := inmem.NewIdentityKeyStore(bob.identity, bob.regID)
-			reply := goEncrypt(ctx, t, bobSess, bobID, aliceAddr, []byte("bob reply 0"))
+			reply := goEncrypt(ctx, t, bobSess, recipient.Identities, aliceAddr, []byte("bob reply 0"))
 			// SPQR cross-impl proof (the producing direction): the Go reply carries
 			// a non-empty pq_ratchet field, and Rust=Alice decrypting it means the
 			// upstream side accepted and mixed the SPQR key Go produced.
@@ -578,11 +548,8 @@ func goDecryptWhisper(ctx context.Context, t *testing.T, sess session.Store, rem
 	return pt
 }
 
-// goDecryptPreKey decrypts the inner SignalMessage of a received
-// PreKeySignalMessage. The recipient session must already be established (via
-// goBob.initBobSession); this then runs the ordinary Double Ratchet receive on
-// the inner message, mirroring how upstream decrypts after process_prekey.
-func goDecryptPreKey(ctx context.Context, t *testing.T, sess session.Store, remote address.ProtocolAddress, m ctMsg) []byte {
+// goDecryptPreKey uses the public recipient API against actual pre-key stores.
+func goDecryptPreKey(ctx context.Context, t *testing.T, recipient session.PreKeyDecryptStores, remote address.ProtocolAddress, m ctMsg) []byte {
 	t.Helper()
 	if m.Type != typePreKey {
 		t.Fatalf("goDecryptPreKey: expected PreKey (%d), got type %d", typePreKey, m.Type)
@@ -591,9 +558,9 @@ func goDecryptPreKey(ctx context.Context, t *testing.T, sess session.Store, remo
 	if err != nil {
 		t.Fatalf("DeserializePreKeySignalMessage: %v", err)
 	}
-	pt, err := session.Decrypt(ctx, pk.Message(), remote, sess, cryptorand.Reader)
+	pt, err := session.DecryptPreKey(ctx, pk, remote, recipient, cryptorand.Reader)
 	if err != nil {
-		t.Fatalf("Go Decrypt (inner SignalMessage): %v", err)
+		t.Fatalf("Go DecryptPreKey: %v", err)
 	}
 	return pt
 }

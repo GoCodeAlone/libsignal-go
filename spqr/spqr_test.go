@@ -6,10 +6,13 @@ package spqr
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/GoCodeAlone/libsignal-go/internal/spqr/chunked"
 	"github.com/GoCodeAlone/libsignal-go/proto"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 func testAuthKey() []byte {
@@ -233,5 +236,130 @@ func TestNegotiationRefused(t *testing.T) {
 	// blake (V0) sends an empty message; alex (min V1) must refuse to negotiate down.
 	if _, err := Recv(alex, bs.Msg); err != ErrMinimumVersion {
 		t.Fatalf("expected ErrMinimumVersion, got %v", err)
+	}
+}
+
+func TestV16HigherVersionNegotiation(t *testing.T) {
+	for _, version := range []byte{2, 255} {
+		t.Run(strconv.Itoa(int(version)), func(t *testing.T) {
+			a, _ := InitialState(v1Params(proto.Direction_A_2_B, proto.Version_V_1, proto.Version_V_1))
+			b, _ := InitialState(v1Params(proto.Direction_B_2_A, proto.Version_V_1, proto.Version_V_1))
+			sent, err := Send(b, rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sent.Msg[0] = version
+			got, err := Recv(a, sent.Msg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got.Key, sent.Key) || got.Key == nil {
+				t.Fatalf("higher-version key: got %x want %x", got.Key, sent.Key)
+			}
+			before, _ := DecodeState(a)
+			after, _ := DecodeState(got.State)
+			if after.GetChain() == nil || after.GetVersionNegotiation() == nil {
+				t.Fatal("higher-version receive must advance the chain and keep negotiation open")
+			}
+			if !gproto.Equal(before.GetV1(), after.GetV1()) {
+				t.Fatal("higher-version payload must not advance the v1 state machine")
+			}
+			// Replaying the same index must exercise the retained receive chain.
+			if _, err := Recv(got.State, sent.Msg); !errors.Is(err, ErrKeyAlreadyRequested) {
+				t.Fatalf("replay: got %v want ErrKeyAlreadyRequested", err)
+			}
+		})
+	}
+}
+
+func TestV16VersionErrors(t *testing.T) {
+	initial, _ := InitialState(v1Params(proto.Direction_A_2_B, proto.Version_V_1, proto.Version_V_0))
+	st, _ := DecodeState(initial)
+	st.Chain = newChain(testAuthKey(), proto.Direction_A_2_B, &proto.ChainParams{}).toProto()
+	st.VersionNegotiation = nil
+	closed, _ := EncodeState(st)
+	for _, tc := range []struct {
+		name  string
+		state []byte
+		msg   []byte
+		want  error
+	}{
+		{"closed_higher", closed, []byte{2, 1, 1, msgTypeNone}, ErrVersionMismatch},
+		{"closed_highest", closed, []byte{255, 1, 1, msgTypeNone}, ErrVersionMismatch},
+		{"closed_below_minimum", closed, nil, ErrMinimumVersion},
+		{"closed_malformed_higher", closed, []byte{2}, ErrMsgDecode},
+		{"disabled_malformed", nil, []byte{2}, ErrMsgDecode},
+		{"open_zero_epoch", initial, []byte{2, 0, 1}, ErrMsgDecode},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Recv(tc.state, tc.msg); !errors.Is(err, tc.want) {
+				t.Fatalf("got %v want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestV16HigherVersionZeroIndex(t *testing.T) {
+	initial, _ := InitialState(v1Params(proto.Direction_A_2_B, proto.Version_V_1, proto.Version_V_0))
+	got, err := Recv(initial, []byte{2, 1, 0, msgTypeNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Key == nil || len(got.Key) != 0 {
+		t.Fatalf("expected present empty key, got %#v", got.Key)
+	}
+	st, _ := DecodeState(got.State)
+	if st.GetChain() == nil || st.GetVersionNegotiation() == nil {
+		t.Fatal("expected chain and open negotiation")
+	}
+}
+
+func TestV16StoredMinimumWraps(t *testing.T) {
+	for _, tc := range []struct {
+		stored int32
+		floor  byte
+	}{
+		{-1, 255},
+		{256, 0},
+		{257, 1},
+	} {
+		for _, version := range []byte{0, 1, 255} {
+			t.Run(strconv.FormatInt(int64(tc.stored), 10)+"/"+strconv.Itoa(int(version)), func(t *testing.T) {
+				initial, err := InitialState(v1Params(proto.Direction_A_2_B, proto.Version_V_1, proto.Version_V_1))
+				if err != nil {
+					t.Fatal(err)
+				}
+				st, err := DecodeState(initial)
+				if err != nil {
+					t.Fatal(err)
+				}
+				st.VersionNegotiation.MinVersion = proto.Version(tc.stored)
+				initial, err = EncodeState(st)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var message []byte
+				if version != 0 {
+					message = []byte{version, 1, 1, msgTypeNone}
+				}
+				got, err := Recv(initial, message)
+				if version < tc.floor {
+					if !errors.Is(err, ErrMinimumVersion) || got != nil {
+						t.Fatalf("got result=%v err=%v; want ErrMinimumVersion", got, err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if version == 0 {
+					if len(got.State) != 0 || got.Key != nil {
+						t.Fatal("wrapped minimum zero must allow downgrade to v0")
+					}
+				} else if len(got.Key) != chainKeyLen {
+					t.Fatalf("got key length %d want %d", len(got.Key), chainKeyLen)
+				}
+			})
+		}
 	}
 }
