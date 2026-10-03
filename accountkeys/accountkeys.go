@@ -1,6 +1,7 @@
 // Package accountkeys implements Signal account-level key derivations.
 //
-// It is a pure-Go port of upstream libsignal rust/account-keys at v0.96.4.
+// It is a pure-Go port of upstream libsignal rust/account-keys, including
+// the SVR/PIN and MFA metadata additions verified against v0.104.0.
 // The package deliberately contains no network or storage behavior.
 package accountkeys
 
@@ -39,6 +40,10 @@ const (
 	BackupForwardSecrecyTokenLen = 32
 	// MediaEncryptionKeyLen is the length in bytes of backup media encryption key data.
 	MediaEncryptionKeyLen = 64
+	// MediaEncryptionAESKeyLen is the AES key prefix length in media encryption key data.
+	MediaEncryptionAESKeyLen = 32
+	// MediaEncryptionHMACKeyLen is the HMAC key suffix length in media encryption key data.
+	MediaEncryptionHMACKeyLen = 32
 )
 
 var (

@@ -36,6 +36,17 @@ esac
 current_tag="$(
 	sed -nE '/^libsignal-protocol = /s/.*tag = "([^"]+)".*/\1/p' compat/rust-harness/Cargo.toml
 )"
+current_rev=""
+
+if [ -z "$current_tag" ]; then
+	metadata="$(cd compat/rust-harness && cargo metadata --format-version 1 --no-deps)"
+	current_tag="$(jq -r '.packages[] | select(.name == "rust-harness") | .metadata.libsignal.upstream_tag // empty' <<< "$metadata")"
+	current_rev="$(jq -r '.packages[] | select(.name == "rust-harness") | .dependencies[] | select(.name == "libsignal-protocol") | .source | split("?rev=")[1] // empty' <<< "$metadata")"
+	if ! [[ "$current_rev" =~ ^[0-9a-f]{40}$ ]]; then
+		echo "could not find current immutable compat harness revision" >&2
+		exit 1
+	fi
+fi
 
 if [ -z "$current_tag" ]; then
 	echo "could not find current compat harness tag" >&2
@@ -51,6 +62,20 @@ echo "updating compat harness from $current_tag to $requested_tag"
 
 export CURRENT_TAG="$current_tag"
 export UPSTREAM_TAG="$requested_tag"
+
+if [ -n "$current_rev" ]; then
+	tag_object="$(gh api "repos/$upstream_repo/git/ref/tags/$requested_tag" --jq '.object')"
+	if [ "$(jq -r .type <<< "$tag_object")" = "tag" ]; then
+		tag_object="$(gh api "repos/$upstream_repo/git/tags/$(jq -r .sha <<< "$tag_object")" --jq '.object')"
+	fi
+	requested_rev="$(jq -r .sha <<< "$tag_object")"
+	if [ "$(jq -r .type <<< "$tag_object")" != "commit" ] || ! [[ "$requested_rev" =~ ^[0-9a-f]{40}$ ]]; then
+		echo "upstream release tag did not resolve to an immutable commit" >&2
+		exit 1
+	fi
+	export CURRENT_REV="$current_rev" UPSTREAM_REV="$requested_rev"
+	perl -0pi -e 's/\Q$ENV{CURRENT_REV}\E/$ENV{UPSTREAM_REV}/g' compat/rust-harness/Cargo.toml
+fi
 
 perl -0pi -e 's/\Q$ENV{CURRENT_TAG}\E/$ENV{UPSTREAM_TAG}/g' \
 	README.md \

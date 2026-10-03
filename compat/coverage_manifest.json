@@ -6,14 +6,14 @@
       "status": "vector-backed",
       "vector": "vectors/account-keys.json",
       "packages": ["accountkeys"],
-      "notes": "Account entropy pool parsing, SVR key derivation, backup key derivation, backup ID derivation, and PIN access key vectors."
+      "notes": "Legacy v0.96.4 entropy/backup/PIN vectors plus v0.104.0 SVR derivations, PIN master-key SIV, media key splits, and fixed-size MFA metadata. The fixture _note records the new upstream commit separately from the global baseline."
     },
     {
       "name": "svr-key",
       "status": "vector-backed",
       "vector": "vectors/account-keys.json",
       "packages": ["accountkeys"],
-      "notes": "SVR key derivation is covered as part of the account-keys vector batch."
+      "notes": "Entropy-to-SVR derivation plus v0.104.0 registration lock, recovery password, storage service, and logging-key vectors. SVRKey has private bytes and redacted formatting, with no new raw-key accessor."
     },
     {
       "name": "backup-id",
@@ -27,7 +27,7 @@
       "status": "vector-backed",
       "vector": "vectors/account-keys.json",
       "packages": ["accountkeys"],
-      "notes": "Backup key, backup ID, local metadata key, media key, thumbnail key, and backup forward-secrecy derivation formulas are owned by accountkeys; committed fixtures currently vector-lock the root backup key and backup ID."
+      "notes": "Backup derivation formulas are owned by accountkeys. Committed fixtures vector-lock root backup key and backup ID at v0.96.4, plus media/thumbnail key data and AES/HMAC splits at v0.104.0. Local metadata and forward-secrecy derivations are covered by Go tests, not new upstream vectors."
     },
     {
       "name": "username-links",

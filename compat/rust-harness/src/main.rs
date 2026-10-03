@@ -5,20 +5,20 @@
 //! Rust compatibility harness for the pure-Go libsignal port.
 //!
 //! Wraps upstream `libsignal-protocol` and related crates pinned to tag
-//! v0.96.4 and exposes two modes:
+//! v0.104.0 and exposes two modes:
 //!
 //!   * `gen-vectors <domain>` — prints a deterministic JSON test-vector batch
-//!     to stdout. Output is seeded with a fixed `rand_chacha` seed recorded in
-//!     the batch header, so re-running produces byte-identical vectors.
+//!     to stdout. Most domains use the fixed `rand_chacha` seed recorded in
+//!     the batch header; account keys replay known inputs and explicit IVs.
 //!   * `interop` — a line-delimited JSON-RPC loop over stdin/stdout. Each input
 //!     line is one request object `{"method": "...", "params": {...}}`; each
 //!     output line is one response. Unknown methods produce an error response,
 //!     never a crash, and the loop continues.
 //!
 //! Domains for `gen-vectors`: `curve`, `kem-decaps`, `hkdf`, `messages`,
-//! `fingerprint`, `groups`, `username-links`.
+//! `fingerprint`, `groups`, `username-links`, `account-keys`.
 //!
-//! The behavioral contract is the v0.96.4 upstream source. Most domains call
+//! The behavioral contract is the v0.104.0 upstream source. Most domains call
 //! the genuine public API directly. The `hkdf` domain reproduces the chain
 //! key / root key / message key / pqxdh-secret derivations, which are
 //! `pub(crate)` upstream, against the same pinned crate versions (`hkdf`,
@@ -31,12 +31,16 @@ use std::time::SystemTime;
 
 use futures_util::FutureExt;
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit as _, Mac};
 use rand::rngs::OsRng;
 use rand::{Rng as _, SeedableRng, TryRngCore as _};
 use rand_chacha::ChaCha20Rng;
 use serde_json::{json, Value};
 use sha2::Sha256;
+
+use libsignal_account_keys::{
+    AccountEntropyPool, BackupKey, EncryptedMfaMetadata, MfaMetadata, PinHash, SvrKey,
+};
 
 use libsignal_protocol::{
     create_sender_key_distribution_message, group_decrypt, group_encrypt, kem, message_decrypt,
@@ -109,8 +113,8 @@ impl rand_core::RngCore for FixedRng {
     }
 }
 
-// rand_core 0.9 CryptoRng is a marker trait. The fixed bytes here are drawn
-// from a CSPRNG upstream, so asserting the marker is sound for test-vector use.
+// Test-only marker permits replaying recorded signing nonces and MFA IVs.
+// FixedRng is deterministic fixture input, not production entropy.
 impl rand_core::CryptoRng for FixedRng {}
 
 fn hex(bytes: &[u8]) -> String {
@@ -217,8 +221,8 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
                 "_note".into(),
                 json!({
                     "encaps_state_backend": "libcrux portable (simd128/simd256 disabled); raw == fixed on all hosts",
-                    "libcrux_ml_kem": "0.0.8 (registry, =0.0.8 in compat/rust-harness/Cargo.toml; checksum-pinned in Cargo.lock)",
-                    "spqr_reference": "1.5.1 (git tag v1.5.1, rev f2589fef855c10f39d72634dab3d14654dd410bf; issue-1275 fix reproduced inline in gen_mlkem_incremental since SPQR's wrapper is pub(crate))",
+                    "libcrux_ml_kem": "0.0.10 (registry, =0.0.10 in compat/rust-harness/Cargo.toml; checksum-pinned in Cargo.lock)",
+                    "spqr_reference": "1.6.0 (git tag v1.6.0, rev 06959b4708f9b7b1e94d0f8cc835f3958c077e94; issue-1275 fix reproduced inline in gen_mlkem_incremental since SPQR's wrapper is pub(crate))",
                     "issue_1275": "https://github.com/cryspen/libcrux/issues/1275 — SIMD-backend EncapsState i16 endianness",
                 }),
             );
@@ -226,13 +230,13 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
         }
         "spqr-chunks" => {
             // Golden BE-u16 chunk vectors + GF16 mul/div triples captured from
-            // the SPQR v1.5.1 crate (test-utils feature). Pins the big-endian
+            // the SPQR v1.6.0 crate (test-utils feature). Pins the big-endian
             // point/coefficient wire serialization that the erasure property
             // test cannot see (encoder+decoder share their convention).
             obj.insert(
                 "_note".into(),
                 json!({
-                    "spqr_reference": "1.5.1 (git tag v1.5.1, rev f2589fef855c10f39d72634dab3d14654dd410bf, test-utils feature)",
+                    "spqr_reference": "1.6.0 (git tag v1.6.0, rev 06959b4708f9b7b1e94d0f8cc835f3958c077e94, test-utils feature)",
                     "endianness": "GF16 points/coefficients serialize BIG-endian u16 (encoding/polynomial.rs Pt::serialize, Poly::serialize, chunk_at) — OPPOSITE of the KEM EncapsState LE-i16",
                     "gf_poly": "0x1100b (x^16+x^12+x^3+x+1)",
                 }),
@@ -243,10 +247,13 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
         "username-links" => {
             obj.insert("cases".into(), Value::Array(gen_username_links()));
         }
+        "account-keys" => {
+            batch = gen_account_keys();
+        }
         other => {
             return Err(format!(
                 "unknown domain {other:?}; \
-                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender|mlkem-incremental|spqr-chunks|username-links"
+                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender|mlkem-incremental|spqr-chunks|username-links|account-keys"
             ));
         }
     };
@@ -254,6 +261,241 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
     serde_json::to_writer_pretty(&mut out, &batch).map_err(|e| e.to_string())?;
     writeln!(out).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Task31's account oracle calls upstream APIs, including encryption and
+/// authentication. The legacy seed identifies the retained known-test inputs;
+/// new MFA IVs are explicit replay bytes, not draws from that seed.
+fn gen_account_keys() -> Value {
+    let pool: AccountEntropyPool =
+        "dtjs858asj6tv0jzsqrsmj0ubp335pisj98e9ssnss8myoc08drhtcktyawvx45l"
+            .parse()
+            .expect("known entropy pool");
+    let svr_bytes = pool.derive_svr_key();
+    let backup = BackupKey::derive_from_account_entropy_pool(&pool);
+    let aci_bytes: [u8; 16] = hex::decode("659aa5f4a28dfcc11ea1b997537a3d95")
+        .expect("ACI hex")
+        .try_into()
+        .expect("ACI length");
+    let media_name = "task31-account-media";
+    let media_id = backup.derive_media_id(media_name);
+    let media_key = backup.derive_media_encryption_key_data(&media_id);
+    let thumbnail_key = backup.derive_thumbnail_transit_encryption_key_data(&media_id);
+
+    let svr_cases: Vec<Value> = [
+        ("account-entropy", svr_bytes),
+        ("zero", [0; 32]),
+        ("ones", [0xff; 32]),
+        ("sequence", std::array::from_fn(|i| i as u8)),
+    ]
+    .into_iter()
+    .map(|(label, bytes)| {
+        let key = SvrKey::new(bytes);
+        json!({
+            "label": label,
+            "svr_key": hex(&bytes),
+            "registration_lock": hex(&key.derive_registration_lock()),
+            "registration_recovery_password": hex(&key.derive_registration_recovery_password()),
+            "storage_service_key": hex(&key.derive_storage_service_key()),
+            "logging_key": hex(&key.derive_logging_key()),
+        })
+    })
+    .collect();
+
+    let pin_cases: Vec<Value> = ["password", "anotherpassword"]
+        .into_iter()
+        .enumerate()
+        .map(|(i, pin)| {
+            let salt = std::array::from_fn(|j| (i * 32 + j) as u8);
+            let hash = PinHash::create(pin.as_bytes(), &salt).expect("PIN hash");
+            let master_key = if i == 0 { svr_bytes } else { [0xff; 32] };
+            let encrypted = hash.encode_master_key(&master_key);
+            let decoded = hash
+                .decode_master_key(&encrypted)
+                .expect("master key authenticates");
+            assert_eq!(decoded, master_key);
+            let tampered: Vec<Value> = [0, 16, 47].into_iter().map(|offset| {
+                let mut blob = encrypted;
+                blob[offset] ^= 1;
+                let accepted = hash.decode_master_key(&blob).is_some();
+                assert!(!accepted, "tampered PIN master key at {offset}");
+                json!({"offset": offset, "encrypted_master_key": hex(&blob), "accepted": accepted})
+            }).collect();
+            json!({
+                "pin": pin,
+                "salt": hex(&salt),
+                "access_key": hex(&hash.access_key),
+                "encryption_key": hex(&hash.encryption_key),
+                "master_key": hex(&master_key),
+                "encrypted_master_key": hex(&encrypted),
+                "decoded_master_key": hex(&decoded),
+                "tampered": tampered,
+            })
+        })
+        .collect();
+
+    let svr = SvrKey::new(svr_bytes);
+    let mfa_cases: Vec<Value> = [
+        ("empty-epoch", String::new(), 0),
+        (
+            "second-truncation",
+            "Task31 security key".to_owned(),
+            1_782_484_792_999,
+        ),
+        ("ascii-limit", "a".repeat(98), 1_782_484_792_000),
+        ("utf8-limit", "\u{00e9}".repeat(49), 1_782_484_792_000),
+        ("timestamp-limit", String::new(), u64::MAX),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (label, name, millis))| {
+        let metadata = MfaMetadata::new(name.clone(), Timestamp::from_epoch_millis(millis))
+            .expect("valid metadata");
+        let iv: [u8; 16] = std::array::from_fn(|j| (i * 16 + j) as u8);
+        let mut rng = FixedRng::new(iv.to_vec());
+        let encrypted = metadata.encrypt(&svr, &mut rng);
+        assert_eq!(rng.pos, 16, "MFA draws only the IV");
+        let decrypted = encrypted.decrypt(&svr).expect("MFA authenticates");
+        assert_eq!(decrypted.name(), name);
+        assert_eq!(decrypted.created_at().epoch_millis(), millis / 1000 * 1000);
+        json!({
+            "label": label,
+            "svr_key": hex(&svr_bytes),
+            "name": name,
+            "created_at_millis": millis,
+            "iv": hex(&iv),
+            "encrypted_metadata": hex(encrypted.as_bytes()),
+            "decrypted_name": decrypted.name(),
+            "decrypted_created_at_millis": decrypted.created_at().epoch_millis(),
+        })
+    })
+    .collect();
+
+    let original = hex::decode(
+        mfa_cases[1]["encrypted_metadata"]
+            .as_str()
+            .expect("blob hex"),
+    )
+    .expect("blob");
+    let mut mfa_invalid_cases = Vec::new();
+    for (label, offset) in [("iv", 0), ("ciphertext", 16), ("mac", 159)] {
+        let mut blob = original.clone();
+        blob[offset] ^= 1;
+        let accepted = EncryptedMfaMetadata::try_from(blob.as_slice())
+            .expect("160 bytes")
+            .decrypt(&svr)
+            .is_ok();
+        assert!(!accepted, "MFA rejects {label} tamper");
+        mfa_invalid_cases.push(json!({
+            "label": label, "svr_key": hex(&svr_bytes),
+            "encrypted_metadata": hex(&blob), "accepted": accepted,
+        }));
+    }
+    for len in [159, 161] {
+        let mut blob = original.clone();
+        blob.resize(len, 0);
+        let accepted = EncryptedMfaMetadata::try_from(blob.as_slice()).is_ok();
+        assert!(!accepted, "MFA rejects length {len}");
+        mfa_invalid_cases.push(json!({
+            "label": format!("length-{len}"), "svr_key": hex(&svr_bytes),
+            "encrypted_metadata": hex(&blob), "accepted": accepted,
+        }));
+    }
+    let wrong_key = [0; 32];
+    let accepted = EncryptedMfaMetadata::try_from(original.as_slice())
+        .expect("160 bytes")
+        .decrypt(&SvrKey::new(wrong_key))
+        .is_ok();
+    assert!(!accepted, "MFA rejects wrong key");
+    mfa_invalid_cases.push(json!({
+        "label": "wrong-key", "svr_key": hex(&wrong_key),
+        "encrypted_metadata": hex(&original), "accepted": accepted,
+    }));
+
+    let mfa_invalid_name_cases: Vec<Value> = [
+        "a".repeat(99),
+        "\u{00e9}".repeat(50),
+        "before\0after".to_owned(),
+    ]
+    .into_iter()
+    .map(|name| {
+        let error = MfaMetadata::new(name.clone(), Timestamp::from_epoch_millis(0))
+            .expect_err("invalid MFA name");
+        json!({"name": name, "created_at_millis": 0, "error": error.to_string()})
+    })
+    .collect();
+
+    json!({
+        "domain": "account-keys",
+        "seed": "upstream-v0.96.4-account-keys-known-tests",
+        "_note": {
+            "legacy_upstream_tag": "v0.96.4",
+            "legacy_fields": "seed; cases entropy_pool/svr_key/backup_key/aci/backup_id; pin_cases pin/salt/access_key",
+            "upstream_tag": "v0.104.0",
+            "upstream_tag_object": "03b9987415e6dcb3d83dfde6a16b52d2b59a7b44",
+            "upstream_commit": "257105c55a7389ca6b1e85185e2769465e6729f1",
+            "oracle": "libsignal-account-keys public APIs; Rust 1.98.1",
+            "seed": "Legacy input identifier retained; MFA cases replay the explicit 16-byte IV through FixedRng.",
+        },
+        "cases": [{
+            "entropy_pool": pool.to_string(),
+            "svr_key": hex(&svr_bytes),
+            "backup_key": hex(&backup.0),
+            "aci": hex(&aci_bytes),
+            "backup_id": hex(&backup.derive_backup_id(&Aci::from_uuid_bytes(aci_bytes)).0),
+            "media_name": media_name,
+            "media_id": hex(&media_id),
+            "media_encryption_key_data": hex(&media_key),
+            "media_aes_key": hex(&media_key[..32]),
+            "media_hmac_key": hex(&media_key[32..]),
+            "thumbnail_transit_encryption_key_data": hex(&thumbnail_key),
+            "thumbnail_aes_key": hex(&thumbnail_key[..32]),
+            "thumbnail_hmac_key": hex(&thumbnail_key[32..]),
+        }],
+        "pin_cases": pin_cases,
+        "svr_cases": svr_cases,
+        "mfa_cases": mfa_cases,
+        "mfa_invalid_cases": mfa_invalid_cases,
+        "mfa_invalid_name_cases": mfa_invalid_name_cases,
+    })
+}
+
+#[cfg(test)]
+mod account_oracle_tests {
+    use super::*;
+
+    #[test]
+    fn account_keys_fixture_replays() {
+        let fixture: Value = serde_json::from_str(include_str!("../../vectors/account-keys.json"))
+            .expect("account fixture JSON");
+        assert_eq!(gen_account_keys(), fixture);
+    }
+
+    #[test]
+    fn account_keys_legacy_outputs_are_preserved() {
+        let batch = gen_account_keys();
+        assert_eq!(batch["seed"], "upstream-v0.96.4-account-keys-known-tests");
+        assert_eq!(
+            batch["cases"][0]["svr_key"],
+            "cdfecb856b148ca1c7f7557904f1ec698d0ccc4d4d68ed4c58c74a21e5c1c6c1"
+        );
+        assert_eq!(
+            batch["cases"][0]["backup_key"],
+            "ea26a2ddb5dba5ef9e34e1b8dea1f5ae7f255306a6d2d883e542306eaa9fe985"
+        );
+        assert_eq!(
+            batch["cases"][0]["backup_id"],
+            "8a624fbc45379043f39f1391cddc5fe8"
+        );
+        assert_eq!(
+            batch["pin_cases"][0]["access_key"],
+            "ab7e8499d21f80a6600b3b9ee349ac6d72c07e3359fe885a934ba7aa844429f8"
+        );
+        assert_eq!(
+            batch["pin_cases"][1]["access_key"],
+            "301d9dd1e96f20ce51083f67d3298fd37b97525de8324d5e12ed2d407d3d927b"
+        );
+    }
 }
 
 /// curve domain: XEdDSA sign/verify with a deterministic 64-byte nonce (the
@@ -901,10 +1143,10 @@ fn gen_sealedsender() -> Vec<Value> {
 // registry keyed by an opaque string handle, so Go can run a whole conversation
 // (handshake, then many encrypt/decrypt turns) against the same Rust peer.
 //
-// v0.91.0 sessions are PQXDH/v4 only (X3DH/v3 is removed upstream — see
-// session.rs "X3DH no longer supported"). v0.91.0 ships the Sparse Post-Quantum
-// Ratchet (spqr v1.5.1): initialize_{alice,bob}_session call
-// spqr::initial_state(version V1, min_version V0) unconditionally — there is no
+// v0.104.0 sessions are PQXDH/v4 only (X3DH/v3 is removed upstream — see
+// session.rs "X3DH no longer supported"). v0.104.0 ships the Sparse Post-Quantum
+// Ratchet (spqr v1.6.0): initialize_{alice,bob}_session call
+// spqr::initial_state(version V1, min_version V1) unconditionally — there is no
 // UsePQRatchet flag at this tag — so sessions negotiate SPQR and the resulting
 // v4 SignalMessages carry pq_ratchet bytes that the Go port mixes in (T28). The
 // InMem stores never actually await, so the async API is driven synchronously
@@ -918,7 +1160,7 @@ thread_local! {
     static STORES: RefCell<HashMap<String, InMemSignalProtocolStore>> = RefCell::new(HashMap::new());
 }
 
-// --- mlkem-incremental domain: libcrux 0.0.8 incremental ML-KEM-768 (the SPQR
+// --- mlkem-incremental domain: libcrux 0.0.10 incremental ML-KEM-768 (the SPQR
 //     KEM), oracle 3 for the pure-Go internal/mlkem768incr incremental layer. ---
 
 /// Byte sizes of the libcrux incremental ML-KEM-768 wire artifacts (K=3). These
@@ -934,7 +1176,7 @@ const MLKEM_INCR_STATE_LEN: usize = 2080; // r̂(3·512) ‖ error2(512) ‖ ran
 const MLKEM_INCR_SS_LEN: usize = 32;
 
 /// Reproduces SPQR's `potentially_fix_state_incorrectly_encoded_by_libcrux_issue_1275`
-/// (SparsePostQuantumRatchet v1.5.1 src/incremental_mlkem768.rs), which is
+/// (SparsePostQuantumRatchet v1.6.0 src/incremental_mlkem768.rs), which is
 /// `pub(crate)` in the spqr crate and so not callable here. libcrux's SIMD
 /// backends (NEON/AVX2) serialize the per-coefficient i16s in `EncapsState` with
 /// swapped endianness (cryspen/libcrux#1275); the portable backend is correct.
@@ -980,7 +1222,7 @@ fn mlkem_incr_fix_state_1275(es: &[u8]) -> Vec<u8> {
     out
 }
 
-/// mlkem-incremental domain: byte-exact KATs for the libcrux 0.0.8 incremental
+/// mlkem-incremental domain: byte-exact KATs for the libcrux 0.0.10 incremental
 /// ML-KEM-768 split (the KEM SPQR uses). Each case is generated from a fixed
 /// 64-byte keygen seed and a fixed 32-byte encapsulation message (both drawn
 /// from the seeded CSPRNG, so the batch is reproducible), exercising the full
@@ -1104,7 +1346,7 @@ fn gen_username_links() -> Vec<Value> {
 }
 
 // --- spqr-chunks domain: golden BE-u16 chunk vectors + GF16 mul/div triples
-//     captured from SPQR v1.5.1 (test-utils), oracle leg (c) for T27 Slice B. ---
+//     captured from SPQR v1.6.0 (test-utils), oracle leg (c) for T27 Slice B. ---
 
 /// Number of golden chunk cases and GF16 triples to emit. Sized to cover the
 /// literal-data path (low indices), the interpolation path (high indices), and a
