@@ -187,9 +187,9 @@ type aliceParams struct {
 }
 
 // initializeAliceSession runs the PQXDH initiator agreement and Double Ratchet
-// alice init (ratchet::initialize_alice_session, minus SPQR per ADR 0001 Stage
-// 1 — pq_ratchet_state is left empty). The recipient's signed pre-key is the
-// initiator's "their ratchet key" for the first DH ratchet step.
+// alice init, including SPQR (ratchet::initialize_alice_session). The
+// recipient's signed pre-key is the initiator's "their ratchet key" for the
+// first DH ratchet step.
 func initializeAliceSession(rng io.Reader, p aliceParams) (*SessionState, error) {
 	// DH agreements in upstream order (pqxdh_initiate):
 	//   DH1 = our_identity.priv x their_signed_pre
@@ -270,8 +270,8 @@ func initializeAliceSession(rng io.Reader, p aliceParams) (*SessionState, error)
 // authKey is the PQXDH-derived PQR seed. The chain params follow upstream
 // spqr_chain_params: max_jump is u32 max for a self-session (a session to one's
 // own identity, where message ordering is unconstrained) and MaxForwardJumps
-// otherwise; max_ooo_keys is MaxMessageKeys. version V1 / min_version V0 enables
-// SPQR while allowing fallback for peers that do not yet speak it. Mirrors
+// otherwise; max_ooo_keys is MaxMessageKeys. Version V1 / min_version V1
+// requires SPQR, matching upstream's current session floor. Mirrors
 // ratchet::initialize_{alice,bob}_session's spqr::initial_state call.
 func pqrInitialState(dir proto.Direction, authKey [32]byte, localIdentity, remoteIdentity curve.PublicKey) ([]byte, error) {
 	selfSession := localIdentity.Equal(remoteIdentity)
@@ -282,7 +282,7 @@ func pqrInitialState(dir proto.Direction, authKey [32]byte, localIdentity, remot
 	state, err := spqr.InitialState(spqr.Params{
 		Direction:   dir,
 		Version:     proto.Version_V_1,
-		MinVersion:  proto.Version_V_0,
+		MinVersion:  proto.Version_V_1,
 		AuthKey:     authKey[:],
 		ChainParams: &proto.ChainParams{MaxJump: maxJump, MaxOooKeys: MaxMessageKeys},
 	})
@@ -293,7 +293,7 @@ func pqrInitialState(dir proto.Direction, authKey [32]byte, localIdentity, remot
 }
 
 // BobParams carries the resolved key material for the recipient agreement. The
-// session cipher (T18) supplies these from the recipient's stores plus the
+// session cipher supplies these from the recipient's stores plus the
 // incoming PreKeySignalMessage's base key and Kyber ciphertext.
 type BobParams struct {
 	OurIdentity   curve.KeyPair
@@ -306,8 +306,8 @@ type BobParams struct {
 }
 
 // InitializeBobSession performs the recipient (Bob) side of the PQXDH agreement
-// and Double Ratchet bob init (ratchet::initialize_bob_session, minus SPQR per
-// ADR 0001 Stage 1). It is the seam the decrypt path (T18) calls once it has
+// and Double Ratchet bob init, including SPQR (ratchet::initialize_bob_session).
+// DecryptPreKey calls this once it has
 // resolved the recipient's pre-keys from its stores and the initiator's base
 // key + Kyber ciphertext from the PreKeySignalMessage. The returned state has
 // no receiver chain (the first incoming message establishes it) and a sender

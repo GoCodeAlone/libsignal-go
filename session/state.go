@@ -2,17 +2,16 @@
 // establishment + message cipher: SessionState (a thin wrapper over the
 // generated proto.SessionStructure), SessionRecord (the current state plus a
 // bounded list of archived states), ProcessPreKeyBundle / InitializeBobSession
-// (handshake), and Encrypt / Decrypt (the message cipher). It is a pure-Go port
+// (handshake), and Encrypt / Decrypt / DecryptPreKey (the message cipher). It is a pure-Go port
 // of rust/protocol/src/state/session.rs, session.rs, and ratchet.rs, and
 // serializes to the same SessionStructure / RecordStructure protobufs as
-// upstream libsignal v0.91.0.
+// upstream libsignal.
 //
-// Compatibility staging: sessions negotiate at the v0.91.0 surface, which ships
-// the Sparse Post-Quantum Ratchet (SPQR) as an optional layer. The session
-// drives SPQR through PQRatchetSend / PQRatchetRecv (the pq_ratchet message
+// Fresh PQXDH sessions require Sparse Post-Quantum Ratchet (SPQR) V1. The
+// session drives SPQR through PQRatchetSend / PQRatchetRecv (the pq_ratchet message
 // field and pq_ratchet_state), mixing the SPQR key into the Double Ratchet
-// message keys; min_version V0 means a peer that does not speak SPQR still
-// interoperates (the key contribution is empty and the derivation is unchanged).
+// message keys. Explicitly persisted legacy min_version V0 states remain
+// compatible with peers that do not speak SPQR; fresh sessions cannot downgrade.
 // See decisions/0001-spqr-staged-compat.md and the README scope matrix.
 package session
 

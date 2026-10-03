@@ -53,7 +53,7 @@ use libsignal_protocol::{
     PreKeySignalMessage, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey,
     SealedSenderV2SentMessage, SenderCertificate, SenderKeyDistributionMessage, SenderKeyMessage,
     SenderKeyRecord, ServerCertificate, ServiceId, SessionRecord, SessionStore, SignalMessage,
-    SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore, Timestamp,
+    SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore, Timestamp,
     UnidentifiedSenderMessageContent,
 };
 
@@ -244,6 +244,18 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
             obj.insert("cases".into(), Value::Array(gen_spqr_chunks()));
             obj.insert("gf_triples".into(), Value::Array(gen_gf16_triples()));
         }
+        "spqr-v16" => {
+            obj.insert(
+                "_note".into(),
+                json!({
+                    "spqr_reference": "1.6.0 (git tag v1.6.0, rev 06959b4708f9b7b1e94d0f8cc835f3958c077e94, test-utils feature)",
+                    "libsignal_reference": "v0.104.0, rev 257105c55a7389ca6b1e85185e2769465e6729f1",
+                    "oracle": "spqr::initial_state, send, recv; malformed chain inputs use the unchanged pq_ratchet.proto wire schema",
+                    "key": "null is None; empty hex is Some(empty), including higher-version epoch-zero/index-zero receive",
+                }),
+            );
+            obj.insert("cases".into(), Value::Array(gen_spqr_v16()));
+        }
         "username-links" => {
             obj.insert("cases".into(), Value::Array(gen_username_links()));
         }
@@ -253,7 +265,7 @@ fn gen_vectors(domain: &str) -> Result<(), String> {
         other => {
             return Err(format!(
                 "unknown domain {other:?}; \
-                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender|mlkem-incremental|spqr-chunks|username-links|account-keys"
+                 expected curve|kem-decaps|hkdf|messages|fingerprint|sessions|groups|sealedsender|mlkem-incremental|spqr-chunks|spqr-v16|username-links|account-keys"
             ));
         }
     };
@@ -495,6 +507,54 @@ mod account_oracle_tests {
             batch["pin_cases"][1]["access_key"],
             "301d9dd1e96f20ce51083f67d3298fd37b97525de8324d5e12ed2d407d3d927b"
         );
+    }
+}
+
+#[cfg(test)]
+mod task32_oracle_tests {
+    use super::*;
+
+    #[test]
+    fn spqr_v16_fixture_replays() {
+        let fixture: Value = serde_json::from_str(include_str!("../../vectors/spqr-v16.json"))
+            .expect("SPQR v1.6 fixture JSON");
+        let generated = gen_spqr_v16();
+        let cases = fixture["cases"].as_array().unwrap();
+        assert_eq!(generated.len(), cases.len(), "missing SPQR oracle cases");
+        assert_eq!(&generated, cases);
+    }
+
+    #[test]
+    fn recipient_prekey_identity_mismatch() {
+        for with_one_time in [false, true] {
+            let result = dispatch(
+                "session.prekey-identity-mismatch",
+                &json!({ "with_one_time": with_one_time }),
+            )
+            .expect("recipient oracle RPC");
+            assert_eq!(result["error_variant"], "InvalidMessage(PreKey)");
+            assert_eq!(result["trust_accepted"], true);
+            assert_eq!(result["base_key_matches"], true);
+            assert_eq!(result["inner_message_matches"], true);
+            assert_eq!(
+                result["fresh"]["plaintext"],
+                hex(b"Task32 recipient oracle")
+            );
+            assert_eq!(result["fresh"]["session_created"], true);
+            assert_eq!(result["fresh"]["identity_saved"], true);
+            assert_eq!(result["fresh"]["pre_key_consumed"], with_one_time);
+            assert_eq!(result["fresh"]["kyber_base_key_used"], true);
+            for name in [
+                "identity",
+                "pre_key",
+                "signed_pre_key",
+                "kyber_record",
+                "session",
+            ] {
+                assert_eq!(result["unchanged"][name], true, "{name}");
+            }
+            assert_eq!(result["kyber_mark_used_calls"], 0);
+        }
     }
 }
 
@@ -1434,6 +1494,193 @@ fn gen_gf16_triples() -> Vec<Value> {
     out
 }
 
+fn gen_spqr_v16() -> Vec<Value> {
+    let initial = |direction, min_version| {
+        spqr::initial_state(spqr::Params {
+            direction,
+            version: spqr::Version::V1,
+            min_version,
+            auth_key: &[41; 32],
+            chain_params: spqr::ChainParams::default(),
+        })
+        .expect("SPQR initial state")
+    };
+    let a = initial(spqr::Direction::A2B, spqr::Version::V1);
+    let a_min0 = initial(spqr::Direction::A2B, spqr::Version::V0);
+    let b = initial(spqr::Direction::B2A, spqr::Version::V1);
+    let sent = spqr::send(&b, &mut seeded_rng()).expect("SPQR send");
+    let closed = spqr::recv(&a, &sent.msg).expect("SPQR matching receive");
+    assert_eq!(closed.key, sent.key);
+    let mut out = Vec::new();
+    let mut record = |label: &str, state: &[u8], message: &[u8], error: Option<&str>| {
+        let mut case = json!({ "label": label, "state": hex(state), "message": hex(message) });
+        match spqr::recv(&state.to_vec(), &message.to_vec()) {
+            Ok(received) => {
+                assert!(error.is_none(), "{label}: expected {error:?}");
+                case["result"] = json!({
+                    "state": hex(&received.state),
+                    "key": received.key.as_deref().map(hex),
+                });
+            }
+            Err(actual) => {
+                let actual = format!("{actual:?}");
+                assert_eq!(Some(actual.as_str()), error, "{label}");
+                case["error"] = json!(actual);
+            }
+        }
+        out.push(case);
+    };
+    record("matching_v1", &a, &sent.msg, None);
+    for version in [2u8, 255] {
+        let mut message = sent.msg.clone();
+        message[0] = version;
+        record(&format!("open_higher_v{version}"), &a, &message, None);
+        let higher = spqr::recv(&a, &message).expect("SPQR higher version");
+        assert_eq!(higher.key, sent.key);
+        assert!(matches!(
+            spqr::current_version(&higher.state).unwrap(),
+            spqr::CurrentVersion::StillNegotiating { .. }
+        ));
+        record(
+            &format!("open_higher_v{version}_replay"),
+            &higher.state,
+            &message,
+            Some("KeyAlreadyRequested(1)"),
+        );
+        record(
+            &format!("closed_higher_v{version}"),
+            &closed.state,
+            &message,
+            Some("VersionMismatch"),
+        );
+    }
+    record("open_below_minimum", &a, &[], Some("MinimumVersion"));
+    record(
+        "closed_below_minimum",
+        &closed.state,
+        &[],
+        Some("MinimumVersion"),
+    );
+    record("open_downgrade_v0", &a_min0, &[], None);
+    record("disabled_empty", &[], &[], None);
+    record("disabled_higher", &[], &[2, 1, 1, 0], None);
+    for (label, state, message) in [
+        (
+            "closed_truncated_preamble",
+            closed.state.as_slice(),
+            &[2u8][..],
+        ),
+        ("disabled_truncated_preamble", &[][..], &[2u8][..]),
+        ("open_zero_epoch", a.as_slice(), &[2u8, 0, 1][..]),
+        ("open_truncated_index", a.as_slice(), &[2u8, 1][..]),
+    ] {
+        record(label, state, message, Some("MsgDecode"));
+    }
+    record("matching_zero_index", &a_min0, &[1, 1, 0, 0], None);
+    let empty = spqr::recv(&a_min0, &vec![2, 1, 0, 0]).expect("SPQR zero index");
+    assert_eq!(empty.key, Some(vec![]));
+    record("higher_zero_index", &a_min0, &[2, 1, 0, 0], None);
+    // Unknown-version payloads are deliberately not interpreted by the v1 machine.
+    record("higher_preamble_only", &a, &[2, 1, 1], None);
+    for size in [0usize, 31, 32, 33] {
+        for recv in [false, true] {
+            let state = spqr_state_with_chain_next(
+                &a,
+                if recv { 32 } else { size },
+                if recv { size } else { 32 },
+            );
+            record(
+                &format!("chain_{}_next_{size}", if recv { "recv" } else { "send" }),
+                &state,
+                &[2, 1, 0, 0],
+                if size == 0 || size == 32 {
+                    None
+                } else {
+                    Some("StateDecode")
+                },
+            );
+        }
+    }
+    for minimum in [-1, 256, 257] {
+        let state = spqr_state_with_minimum(&a, minimum);
+        // current_version uses TryInto, unlike recv's deliberately wrapping
+        // `vn.min_version as u8`. Keep those two upstream behaviors distinct.
+        assert!(matches!(spqr::current_version(&state), Err(spqr::Error::StateDecode)));
+        record(
+            &format!("stored_minimum_{minimum}_empty"),
+            &state,
+            &[],
+            if minimum == 256 { None } else { Some("MinimumVersion") },
+        );
+        record(
+            &format!("stored_minimum_{minimum}_matching"),
+            &state,
+            &sent.msg,
+            if minimum == -1 { Some("MinimumVersion") } else { None },
+        );
+        record(
+            &format!("stored_minimum_{minimum}_highest"),
+            &state,
+            &[255, 1, 1, 0],
+            None,
+        );
+    }
+    out
+}
+
+// Replace the known initial A2B/V1 negotiation block's min_version scalar,
+// preserving its auth key, params, and genuine upstream v1 inner state.
+fn spqr_state_with_minimum(initial: &[u8], minimum: i32) -> Vec<u8> {
+    assert_eq!(initial[0], 0x0a);
+    let end = usize::from(initial[1]) + 2;
+    assert_eq!(&initial[end - 4..end], &[0x18, 1, 0x22, 0]);
+    let mut negotiation = initial[2..end - 3].to_vec();
+    let mut value = i64::from(minimum) as u64;
+    loop {
+        let low = (value & 0x7f) as u8;
+        value >>= 7;
+        negotiation.push(if value == 0 { low } else { low | 0x80 });
+        if value == 0 {
+            break;
+        }
+    }
+    negotiation.extend([0x22, 0]);
+    let mut state = vec![0x0a, negotiation.len().try_into().expect("short negotiation")];
+    state.extend(negotiation);
+    state.extend_from_slice(&initial[end..]);
+    state
+}
+
+// Construct only adversarial fixture input, not expected output. The initial
+// state has no chain; append Chain(2) with one Epoch(3), send(1)/recv(2) Next(2),
+// and empty Params(6). Lengths fit a single byte. No extra prost dependency is
+// needed; all decoding, validation, and result generation is upstream recv.
+fn spqr_state_with_chain_next(initial: &[u8], send_len: usize, recv_len: usize) -> Vec<u8> {
+    let direction = |len: usize| {
+        assert!(len <= 33);
+        if len == 0 {
+            vec![]
+        } else {
+            let mut bytes = vec![0x12, len as u8];
+            bytes.extend(vec![41; len]);
+            bytes
+        }
+    };
+    let send = direction(send_len);
+    let recv = direction(recv_len);
+    let mut epoch = vec![0x0a, send.len() as u8];
+    epoch.extend(send);
+    epoch.extend([0x12, recv.len() as u8]);
+    epoch.extend(recv);
+    let mut chain = vec![0x1a, epoch.len() as u8];
+    chain.extend(epoch);
+    chain.extend([0x32, 0]);
+    let mut state = initial.to_vec();
+    state.extend([0x12, chain.len() as u8]);
+    state.extend(chain);
+    state
+}
+
 /// The interop CSPRNG. Session key generation and Kyber encapsulation must use a
 /// real CSPRNG (the handshake is not vector-locked here — agreement is checked
 /// by decrypting, not by byte equality), so this draws from the OS. rand 0.9's
@@ -1763,6 +2010,228 @@ fn session_decrypt(params: &Value) -> Result<Value, String> {
         .map_err(|e| e.to_string())?;
         Ok(json!({ "plaintext": hex(&plaintext) }))
     })
+}
+
+type StoreFuture<'a, T> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, SignalProtocolError>> + 'a>>;
+
+struct KyberUseObserver<'a> {
+    inner: &'a mut dyn KyberPreKeyStore,
+    marks: usize,
+}
+
+// Match async_trait(?Send)'s erased signatures without adding a dependency.
+// All cryptographic/storage operations still delegate to upstream's store.
+impl KyberPreKeyStore for KyberUseObserver<'_> {
+    fn get_kyber_pre_key<'life0, 'async_trait>(
+        &'life0 self,
+        id: KyberPreKeyId,
+    ) -> StoreFuture<'async_trait, KyberPreKeyRecord>
+    where
+        'life0: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move { self.inner.get_kyber_pre_key(id).await })
+    }
+
+    fn save_kyber_pre_key<'life0, 'life1, 'async_trait>(
+        &'life0 mut self,
+        id: KyberPreKeyId,
+        record: &'life1 KyberPreKeyRecord,
+    ) -> StoreFuture<'async_trait, ()>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move { self.inner.save_kyber_pre_key(id, record).await })
+    }
+
+    fn mark_kyber_pre_key_used<'life0, 'life1, 'async_trait>(
+        &'life0 mut self,
+        id: KyberPreKeyId,
+        ec_id: SignedPreKeyId,
+        base_key: &'life1 PublicKey,
+    ) -> StoreFuture<'async_trait, ()>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            self.marks += 1;
+            self.inner
+                .mark_kyber_pre_key_used(id, ec_id, base_key)
+                .await
+        })
+    }
+}
+
+fn recipient_snapshot(
+    store: &InMemSignalProtocolStore,
+    remote: &ProtocolAddress,
+    message: &PreKeySignalMessage,
+) -> Result<Value, String> {
+    let snapshot = || -> Result<Value, SignalProtocolError> {
+        let identity = block_on(store.identity_store.get_identity(remote))?;
+        let pre_key = match message.pre_key_id() {
+            Some(id) => match block_on(store.pre_key_store.get_pre_key(id)) {
+                Ok(record) => Some(hex(&record.serialize()?)),
+                Err(SignalProtocolError::InvalidPreKeyId) => None,
+                Err(error) => return Err(error),
+            },
+            None => None,
+        };
+        let signed = block_on(
+            store
+                .signed_pre_key_store
+                .get_signed_pre_key(message.signed_pre_key_id()),
+        )?;
+        let kyber = block_on(
+            store
+                .kyber_pre_key_store
+                .get_kyber_pre_key(message.kyber_pre_key_id().expect("PQXDH")),
+        )?;
+        let session = block_on(store.session_store.load_session(remote))?;
+        Ok(json!({
+            "identity": {
+                "remote": identity.map(|key| hex(&key.serialize())),
+                "local": hex(&block_on(store.identity_store.get_identity_key_pair())?.serialize()),
+                "registration_id": block_on(store.identity_store.get_local_registration_id())?,
+            },
+            "pre_key": pre_key,
+            "signed_pre_key": hex(&signed.serialize()?),
+            "kyber_record": hex(&kyber.serialize()?),
+            "session": session.map(|record| record.serialize().map(|bytes| hex(&bytes))).transpose()?,
+        }))
+    };
+    snapshot().map_err(|error| error.to_string())
+}
+
+/// Self-contained recipient oracle. Only the outer duplicate identity changes;
+/// TOFU's known-key map is reset before the attempt so trust does not mask the
+/// established-session identity consistency check. Reserved stores are local
+/// to this RPC; existing session RPC behavior is unchanged.
+fn session_prekey_identity_mismatch(params: &Value) -> Result<Value, String> {
+    const ALICE: &str = "__task32_mismatch_alice";
+    const BOB: &str = "__task32_mismatch_bob";
+    let with_one_time = params
+        .get("with_one_time")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let mut bundle = session_create_prekey_bundle(&json!({
+        "handle": BOB, "with_one_time": with_one_time,
+    }))?;
+    bundle["handle"] = json!(ALICE);
+    bundle["remote_name"] = json!(BOB);
+    session_process_bundle_as_alice(&bundle)?;
+    let encrypted = session_encrypt(&json!({
+        "handle": ALICE, "remote_name": BOB, "plaintext": hex(b"Task32 recipient oracle"),
+    }))?;
+    assert_eq!(encrypted["type"], CiphertextMessageType::PreKey as u8);
+    let message = PreKeySignalMessage::try_from(param_bytes(&encrypted, "serialized")?.as_slice())
+        .map_err(|error| error.to_string())?;
+    let remote = protocol_address(ALICE);
+    let before_fresh = with_store(BOB, |store| recipient_snapshot(store, &remote, &message))?;
+    let decrypted = session_decrypt(&json!({
+        "handle": BOB, "remote_name": ALICE, "type": 3, "serialized": encrypted["serialized"],
+    }))?;
+    let result = with_store(BOB, |store| {
+        let after_fresh = recipient_snapshot(store, &remote, &message)?;
+        let mut usage_probe = store.kyber_pre_key_store.clone();
+        let used = matches!(
+            block_on(usage_probe.mark_kyber_pre_key_used(
+                message.kyber_pre_key_id().expect("PQXDH"),
+                message.signed_pre_key_id(),
+                message.base_key(),
+            )),
+            Err(SignalProtocolError::InvalidMessage(CiphertextMessageType::PreKey, ref reason)) if reason == "reused base key"
+        );
+        let replacement = IdentityKeyPair::generate(&mut interop_rng());
+        let mismatched = PreKeySignalMessage::new(
+            message.message_version(),
+            message.registration_id(),
+            message.pre_key_id(),
+            message.signed_pre_key_id(),
+            message
+                .kyber_pre_key_id()
+                .zip(message.kyber_ciphertext())
+                .map(|(id, ct)| KyberPayload::new(id, ct.clone())),
+            *message.base_key(),
+            *replacement.identity_key(),
+            message.message().clone(),
+        )
+        .map_err(|error| error.to_string())?;
+        store.identity_store.reset();
+        let trusted = block_on(store.identity_store.is_trusted_identity(
+            &remote,
+            mismatched.identity_key(),
+            libsignal_protocol::Direction::Receiving,
+        ))
+        .map_err(|error| error.to_string())?;
+        let before = recipient_snapshot(store, &remote, &message)?;
+        let (failure, marks) = {
+            let mut kyber = KyberUseObserver {
+                inner: &mut store.kyber_pre_key_store,
+                marks: 0,
+            };
+            let failure = block_on(message_decrypt(
+                &CiphertextMessage::PreKeySignalMessage(mismatched.clone()),
+                &remote,
+                &protocol_address("self"),
+                &mut store.session_store,
+                &mut store.identity_store,
+                &mut store.pre_key_store,
+                &store.signed_pre_key_store,
+                &mut kyber,
+                &mut interop_rng(),
+            ))
+            .expect_err("mismatched identity must be rejected");
+            (failure, kyber.marks)
+        };
+        let variant = match &failure {
+            SignalProtocolError::InvalidMessage(CiphertextMessageType::PreKey, _) => {
+                "InvalidMessage(PreKey)"
+            }
+            _ => return Err(format!("unexpected recipient failure: {failure:?}")),
+        };
+        let after = recipient_snapshot(store, &remote, &message)?;
+        let mut unchanged = serde_json::Map::new();
+        for name in [
+            "identity",
+            "pre_key",
+            "signed_pre_key",
+            "kyber_record",
+            "session",
+        ] {
+            unchanged.insert(name.to_string(), json!(before[name] == after[name]));
+        }
+        Ok(json!({
+            "upstream_commit": "257105c55a7389ca6b1e85185e2769465e6729f1",
+            "with_one_time": with_one_time,
+            "fresh": {
+                "plaintext": decrypted["plaintext"],
+                "session_created": before_fresh["session"].is_null() && !after_fresh["session"].is_null(),
+                "identity_saved": after_fresh["identity"]["remote"] == hex(&message.identity_key().serialize()),
+                "pre_key_consumed": !before_fresh["pre_key"].is_null() && after_fresh["pre_key"].is_null(),
+                "kyber_base_key_used": used,
+            },
+            "trust_setup": "upstream InMemIdentityKeyStore::reset (unknown peer accepted by TOFU)",
+            "trust_accepted": trusted,
+            "base_key_matches": message.base_key() == mismatched.base_key(),
+            "inner_message_matches": message.message().as_ref() == mismatched.message().as_ref(),
+            "error_variant": variant,
+            "error": failure.to_string(),
+            "unchanged": unchanged,
+            "kyber_mark_used_calls": marks,
+        }))
+    });
+    STORES.with(|stores| {
+        let mut stores = stores.borrow_mut();
+        stores.remove(ALICE);
+        stores.remove(BOB);
+    });
+    result
 }
 
 /// Byte-exact KAT for the sender-key primitives, reproduced from the v0.91.0
@@ -2213,6 +2682,7 @@ fn dispatch(method: &str, params: &Value) -> Result<Value, String> {
         "session.process-bundle-as-alice" => session_process_bundle_as_alice(params),
         "session.encrypt" => session_encrypt(params),
         "session.decrypt" => session_decrypt(params),
+        "session.prekey-identity-mismatch" => session_prekey_identity_mismatch(params),
 
         // --- sealed sender (v1 + v2 seal; unseal handles v1 + v2) ---
         "sealed.seal-v1" => sealed_seal_v1(params),
