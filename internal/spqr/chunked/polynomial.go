@@ -33,12 +33,19 @@ const (
 	// NumPolys is the number of GF(2^16) polynomials the message is spread
 	// across (= ChunkSize / 2, one big-endian u16 per polynomial per chunk).
 	NumPolys = ChunkSize / 2 // 16
+
+	// Each polynomial has only 2^16 distinct field coordinates.
+	maxDecoderMessageLen = ChunkSize * (1 << 16)
 )
 
 // ErrOddLength is returned when a message or declared length is not a multiple
 // of 2 (the byte width of a GF(2^16) value). The upstream encoder/decoder
 // require even lengths.
 var ErrOddLength = errors.New("spqr/encoding: message length must be even")
+
+// ErrMessageLengthOutOfRange reports a declared decoder length outside the
+// range representable by the chunk coordinates.
+var ErrMessageLengthOutOfRange = errors.New("spqr/encoding: message length outside decoder range")
 
 // ErrSerializationInvalid is returned when an Encoder/Decoder proto has a shape
 // the codec cannot parse (wrong number of polynomial entries, a point list that
@@ -206,10 +213,10 @@ func (e *Encoder) NextChunk() Chunk {
 
 // --- Decoder ---
 
-// Decoder reassembles a message from received Chunks. It needs pointsNeeded
-// total points (= messageLen/2), distributed across the 16 polynomials.
+// Decoder reassembles a message from received Chunks. It needs messageLen/2
+// points, distributed across the 16 polynomials.
 type Decoder struct {
-	pointsNeeded int
+	messageLen int
 	// pts[p] holds received points for polynomial p, kept de-duplicated by x.
 	pts [NumPolys][]pt
 }
@@ -219,15 +226,19 @@ func NewDecoder(msgLen int) (*Decoder, error) {
 	if msgLen%2 != 0 {
 		return nil, ErrOddLength
 	}
-	return &Decoder{pointsNeeded: msgLen / 2}, nil
+	if msgLen < 0 || msgLen > maxDecoderMessageLen {
+		return nil, ErrMessageLengthOutOfRange
+	}
+	return &Decoder{messageLen: msgLen}, nil
 }
 
 // necessaryPoints is how many points polynomial p needs for reconstruction:
 // pointsNeeded spread across 16 polynomials, with the first (pointsNeeded%16)
 // polynomials taking one extra.
 func (d *Decoder) necessaryPoints(p int) int {
-	per := d.pointsNeeded / NumPolys
-	rem := d.pointsNeeded % NumPolys
+	pointsNeeded := d.messageLen / 2
+	per := pointsNeeded / NumPolys
+	rem := pointsNeeded % NumPolys
 	if p < rem {
 		return per + 1
 	}
@@ -263,7 +274,7 @@ func (d *Decoder) AddChunk(c *Chunk) {
 }
 
 // DecodedMessage attempts to reconstruct the message. It returns nil if not yet
-// enough points have been received. The returned slice is pointsNeeded*2 bytes,
+// enough points have been received. The returned slice is messageLen bytes,
 // each value big-endian.
 func (d *Decoder) DecodedMessage() []byte {
 	for i := 0; i < NumPolys; i++ {
@@ -273,8 +284,8 @@ func (d *Decoder) DecodedMessage() []byte {
 	}
 	// Per-polynomial recovered polynomials, interpolated lazily.
 	var polys [NumPolys]*poly
-	out := make([]byte, 0, d.pointsNeeded*2)
-	for i := 0; i < d.pointsNeeded; i++ {
+	out := make([]byte, 0, d.messageLen)
+	for i := 0; i < d.messageLen/2; i++ {
 		p := i % NumPolys
 		polyIdx := i / NumPolys
 		x := GF16{Value: uint16(polyIdx)}
