@@ -93,7 +93,7 @@ func EncoderFromProto(pb *proto.PolynomialEncoder) (*Encoder, error) {
 // is_complete=false (the latch the reference never sets).
 func DecoderToProto(d *Decoder) *proto.PolynomialDecoder {
 	out := &proto.PolynomialDecoder{
-		PtsNeeded:  uint32(d.pointsNeeded),
+		PtsNeeded:  uint32(d.messageLen / 2),
 		Polys:      NumPolys,
 		IsComplete: false,
 	}
@@ -118,7 +118,12 @@ func DecoderFromProto(pb *proto.PolynomialDecoder) (*Decoder, error) {
 	if len(pts) != NumPolys {
 		return nil, ErrSerializationInvalid
 	}
-	d := &Decoder{pointsNeeded: int(pb.GetPtsNeeded())}
+	pointsNeeded := pb.GetPtsNeeded()
+	// Bound the unsigned wire field before converting it to a byte length.
+	if pointsNeeded > maxDecoderMessageLen/2 {
+		return nil, ErrSerializationInvalid
+	}
+	d := &Decoder{messageLen: int(pointsNeeded) * 2}
 	for p := 0; p < NumPolys; p++ {
 		raw := pts[p]
 		if len(raw)%ptSize != 0 {

@@ -124,6 +124,39 @@ func TestDecoderProtoRoundTrip(t *testing.T) {
 	}
 }
 
+// The largest representable coordinate space round-trips without requiring
+// storage for a completed message.
+func TestDecoderMessageLengthLimits(t *testing.T) {
+	for _, size := range []int{0, 34, maxDecoderMessageLen} {
+		dec, err := NewDecoder(size)
+		if err != nil {
+			t.Fatalf("NewDecoder(%d): %v", size, err)
+		}
+		pb := DecoderToProto(dec)
+		if pb.GetPtsNeeded() != uint32(size/2) {
+			t.Fatalf("NewDecoder(%d): wire point count = %d", size, pb.GetPtsNeeded())
+		}
+		restored, err := DecoderFromProto(pb)
+		if err != nil || restored.messageLen != size {
+			t.Fatalf("NewDecoder(%d): wire round trip = %v, %v", size, restored, err)
+		}
+	}
+	if _, err := NewDecoder(maxDecoderMessageLen + 2); err != ErrMessageLengthOutOfRange {
+		t.Fatalf("over-capacity length: got %v, want ErrMessageLengthOutOfRange", err)
+	}
+	if _, err := NewDecoder(-2); err != ErrMessageLengthOutOfRange {
+		t.Fatalf("negative length: got %v, want ErrMessageLengthOutOfRange", err)
+	}
+	overCapacity := &proto.PolynomialDecoder{
+		PtsNeeded: maxDecoderMessageLen/2 + 1,
+		Polys:     NumPolys,
+		Pts:       make([][]byte, NumPolys),
+	}
+	if _, err := DecoderFromProto(overCapacity); err != ErrSerializationInvalid {
+		t.Fatalf("over-capacity wire count: got %v, want ErrSerializationInvalid", err)
+	}
+}
+
 // TestEncoderFromProtoRejectsBadShapes covers the from_pb error branches.
 func TestEncoderFromProtoRejectsBadShapes(t *testing.T) {
 	// Both pts and polys populated → invalid.
