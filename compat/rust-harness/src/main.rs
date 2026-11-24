@@ -69,6 +69,16 @@ fn seeded_rng() -> ChaCha20Rng {
     ChaCha20Rng::seed_from_u64(VECTOR_SEED)
 }
 
+/// Draws synthetic key bytes for this deterministic interoperability oracle.
+/// The pinned ChaCha20 stream exposes 32-bit words in little-endian byte
+/// order, so eight whole words consume exactly the same bytes as a 32-byte
+/// fill. This is never used for production key generation.
+fn fixture_key_bytes(rng: &mut ChaCha20Rng) -> [u8; 32] {
+    use rand_core::RngCore;
+    let words: [[u8; 4]; 8] = std::array::from_fn(|_| rng.next_u32().to_le_bytes());
+    std::array::from_fn(|i| words[i / 4][i % 4])
+}
+
 /// An RNG that replays a fixed byte buffer, then errors if drained.
 ///
 /// XEdDSA signing draws a 64-byte nonce from its `csprng` (see
@@ -671,8 +681,7 @@ fn gen_hkdf() -> Value {
 
     for _ in 0..N_HKDF_PER_SUBDOMAIN {
         // chain-key
-        let mut chain_key = [0u8; 32];
-        rng.fill_bytes(&mut chain_key);
+        let chain_key = fixture_key_bytes(&mut rng);
         let next_chain_key = hmac_sha256(&chain_key, &[0x02u8]);
         chain_key_cases.push(json!({
             "chain_key": hex(&chain_key),
@@ -680,8 +689,7 @@ fn gen_hkdf() -> Value {
         }));
 
         // message-keys
-        let mut mk_chain_key = [0u8; 32];
-        rng.fill_bytes(&mut mk_chain_key);
+        let mk_chain_key = fixture_key_bytes(&mut rng);
         let message_key_seed = hmac_sha256(&mk_chain_key, &[0x01u8]);
         let mut mk_okm = [0u8; 80];
         Hkdf::<Sha256>::new(None, &message_key_seed)
@@ -2250,13 +2258,11 @@ fn session_prekey_identity_mismatch(params: &Value) -> Result<Value, String> {
 /// senderMessageKey (iv/cipher_key) equal these bytes, pinning the primitive
 /// independently of the SenderKeyMessage wire framing.
 fn gen_sender_key_derivations() -> Vec<Value> {
-    use rand_core::RngCore;
     let mut rng = seeded_rng();
     let mut cases = Vec::new();
 
     for i in 0..N_GROUPS_DERIVATIONS {
-        let mut chain_key = [0u8; 32];
-        rng.fill_bytes(&mut chain_key);
+        let chain_key = fixture_key_bytes(&mut rng);
         let iteration = i; // vary the recorded iteration across cases
 
         let next_chain_key = hmac_sha256(&chain_key, &[0x02u8]);
@@ -2277,6 +2283,25 @@ fn gen_sender_key_derivations() -> Vec<Value> {
     }
 
     cases
+}
+
+#[cfg(test)]
+mod fixture_key_tests {
+    use super::*;
+
+    #[test]
+    fn fixture_keys_preserve_pinned_hkdf_and_group_vectors() {
+        let hkdf: Value = serde_json::from_str(include_str!("../../vectors/hkdf.json"))
+            .expect("HKDF fixture JSON");
+        assert_eq!(gen_hkdf(), hkdf["subdomains"]);
+
+        let groups: Value = serde_json::from_str(include_str!("../../vectors/groups.json"))
+            .expect("group fixture JSON");
+        assert_eq!(
+            Value::Array(gen_sender_key_derivations()),
+            groups["derivations"]
+        );
+    }
 }
 
 /// Reads the serialized SenderKeyRecord for (sender, distribution_id) out of the
